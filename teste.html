@@ -3,18 +3,57 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calculadora de Salário</title>
+    <title>Calculadora de Salário Final</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
-        /* Adicione estilos personalizados aqui se precisar, ou substitua pelos estilos React do Tailwind */
         body {
             margin: 0;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
                 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
                 sans-serif;
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
+            background-color: #1a202c; /* Cor de fundo Tailwind gray-900 */
+            color: #e2e8f0; /* Cor do texto Tailwind gray-200 */
         }
+        /* Custom scrollbar para navegadores webkit */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #2d3748; /* Tailwind gray-800 */
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #4a5568; /* Tailwind gray-600 */
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #718096; /* Tailwind gray-500 */
+        }
+
+        details summary {
+            list-style: none; /* Remove o marcador padrão */
+        }
+        details summary::-webkit-details-marker {
+            display: none; /* Remove o marcador padrão para Safari */
+        }
+        details summary::before {
+            content: '►'; /* Indicador de estado recolhido */
+            margin-right: 0.5rem;
+            transition: transform 0.2s ease-in-out;
+            color: #90cdf4; /* Tailwind blue-300 */
+            display: inline-block; /* Garante que a transformação funcione */
+        }
+        details[open] summary::before {
+            transform: rotate(90deg); /* Indicador de estado expandido */
+        }
+        .font-inter { /* Fallback se Inter for primária, já tratado no body */
+            font-family: 'Inter', sans-serif;
+        }
+        /* O @import da fonte foi movido para a tag <link> no <head> */
     </style>
 </head>
 <body>
@@ -25,257 +64,554 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <script type="text/babel">
-        // Cole o código do seu aplicativo React aqui
         function App() {
-          const [hourlyRate, setHourlyRate] = React.useState(12.94);
-          const [startDate, setStartDate] = React.useState('');
-          const [endDate, setEndDate] = React.useState('');
-          const [dailyHours, setDailyHours] = React.useState([]);
-          const [totalSalary, setTotalSalary] = React.useState(0);
-          const [errorMessage, setErrorMessage] = React.useState('');
-          const [showMessageBox, setShowMessageBox] = React.useState(false);
+            const [hourlyRate, setHourlyRate] = React.useState(12.94);
+            const [selectedYear, setSelectedYear] = React.useState(new Date().getFullYear().toString());
+            const [yearlyPeriods, setYearlyPeriods] = React.useState([]);
+            const [annualTotalSalary, setAnnualTotalSalary] = React.useState(0);
+            const [errorMessage, setErrorMessage] = React.useState('');
+            const [showMessageBox, setShowMessageBox] = React.useState(false);
 
-          const formatDate = (date) => {
-            const d = new Date(date);
-            if (isNaN(d.getTime())) {
-              return '';
-            }
-            const year = d.getFullYear();
-            const month = String(d.getMonth() + 1).padStart(2, '0');
-            const day = String(d.getDate()).padStart(2, '0');
-            return `${year}-${month}-${day}`;
-          };
+            const monthNames = React.useMemo(() => [
+                'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+            ], []);
 
-          React.useEffect(() => {
-            const today = new Date();
-            const currentYear = today.getFullYear();
-            const currentMonth = today.getMonth();
+            // Função para formatar datas consistentemente, corrigindo potenciais issues de timezone na conversão para string YYYY-MM-DD
+            const formatDate = React.useCallback((dateInput) => {
+                let d;
+                if (dateInput instanceof Date) {
+                    // Cria uma nova data baseada nos componentes da data original para evitar problemas de timezone na formatação
+                    // Usar UTC para evitar que a data mude dependendo do fuso horário do cliente ao criar a string
+                    d = new Date(Date.UTC(dateInput.getFullYear(), dateInput.getMonth(), dateInput.getDate()));
+                } else if (typeof dateInput === 'string' && dateInput.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                    const parts = dateInput.split('-');
+                    // Cria a data em UTC para consistência
+                    d = new Date(Date.UTC(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])));
+                } else {
+                     // Tenta parsear outros formatos de string, ou se já for um timestamp
+                    const tempDate = new Date(dateInput);
+                    if (!isNaN(tempDate.getTime())) {
+                         d = new Date(Date.UTC(tempDate.getFullYear(), tempDate.getMonth(), tempDate.getDate()));
+                    } else {
+                        console.warn("Data inválida passada para formatDate:", dateInput);
+                        return ''; // Data inválida
+                    }
+                }
 
-            const startMonthIndex = currentMonth - 2;
-            const endMonthIndex = currentMonth - 1;
+                if (isNaN(d.getTime())) {
+                    console.warn("Data inválida após processamento em formatDate:", dateInput);
+                    return ''; // Data inválida
+                }
 
-            const defaultStartDate = new Date(currentYear, startMonthIndex, 21);
-            const defaultEndDate = new Date(currentYear, endMonthIndex, 20);
+                const year = d.getUTCFullYear();
+                const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+                const day = String(d.getUTCDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            }, []);
 
-            setStartDate(formatDate(defaultStartDate));
-            setEndDate(formatDate(defaultEndDate));
-          }, []);
 
-          React.useEffect(() => {
-            if (startDate && endDate) {
-              const start = new Date(startDate);
-              const end = new Date(endDate);
+            const getEasterSunday = React.useCallback((year) => {
+                const a = year % 19;
+                const b = Math.floor(year / 100);
+                const c = year % 100;
+                const d = Math.floor(b / 4);
+                const e = b % 4;
+                const f = Math.floor((b + 8) / 25);
+                const g = Math.floor((b - f + 1) / 3);
+                const h = (19 * a + b - d - g + 15) % 30;
+                const i = Math.floor(c / 4);
+                const k = c % 4;
+                const l = (32 + 2 * e + 2 * i - h - k) % 7;
+                const m = Math.floor((a + 11 * h + 22 * l) / 451);
+                const month = Math.floor((h + l - 7 * m + 114) / 31);
+                const day = ((h + l - 7 * m + 114) % 31) + 1;
+                return new Date(year, month - 1, day);
+            }, []);
 
-              if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-                setErrorMessage('Datas de início ou término inválidas. Por favor, verifique.');
-                setShowMessageBox(true);
-                setDailyHours([]);
-                return;
-              }
+            const getBrazilianHolidays = React.useCallback((year) => {
+                const holidays = new Set();
+                const easter = getEasterSunday(year);
 
-              if (start > end) {
-                setErrorMessage('A data de início não pode ser posterior à data de término.');
-                setShowMessageBox(true);
-                setDailyHours([]);
-                return;
-              }
+                holidays.add(formatDate(new Date(year, 0, 1)));
+                holidays.add(formatDate(new Date(year, 3, 21)));
+                holidays.add(formatDate(new Date(year, 4, 1)));
+                holidays.add(formatDate(new Date(year, 8, 7)));
+                holidays.add(formatDate(new Date(year, 9, 12)));
+                holidays.add(formatDate(new Date(year, 10, 2)));
+                holidays.add(formatDate(new Date(year, 10, 15)));
+                holidays.add(formatDate(new Date(year, 11, 25)));
 
-              const days = [];
-              let currentDate = new Date(start);
+                const carnivalDate = new Date(easter.getTime());
+                carnivalDate.setDate(easter.getDate() - 47);
+                holidays.add(formatDate(carnivalDate));
 
-              while (currentDate <= end) {
-                const dayOfWeek = currentDate.getDay();
-                const isWeekday = dayOfWeek !== 0 && dayOfWeek !== 6;
+                const goodFridayDate = new Date(easter.getTime());
+                goodFridayDate.setDate(easter.getDate() - 2);
+                holidays.add(formatDate(goodFridayDate));
+                
+                const corpusChristiDate = new Date(easter.getTime());
+                corpusChristiDate.setDate(easter.getDate() + 60);
+                holidays.add(formatDate(corpusChristiDate));
 
-                days.push({
-                  date: formatDate(currentDate),
-                  hours: isWeekday ? 5 : 0,
-                  isWeekday: isWeekday,
+                return holidays;
+            }, [getEasterSunday, formatDate]);
+
+            const initializePeriods = React.useCallback((yearToInitStr) => {
+                const currentYear = parseInt(yearToInitStr, 10);
+                if (isNaN(currentYear) || currentYear < 1900 || currentYear > 2100) {
+                    setErrorMessage("Por favor, insira um ano válido (1900-2100).");
+                    setShowMessageBox(true);
+                    setYearlyPeriods([]);
+                    setAnnualTotalSalary(0);
+                    return;
+                }
+
+                const holidays = getBrazilianHolidays(currentYear);
+                const periods = [];
+                for (let i = 0; i < 12; i++) {
+                    const salaryMonthName = monthNames[i];
+                    const periodStart = new Date(currentYear, i - 2, 21);
+                    const periodEnd = new Date(currentYear, i - 1, 20);
+
+                    const daysInPeriod = [];
+                    let currentDateIter = new Date(periodStart.getTime());
+
+                    while (currentDateIter <= periodEnd) {
+                        const dayOfWeek = currentDateIter.getDay();
+                        const isWeekday = dayOfWeek !== 0 && dayOfWeek !== 6;
+                        const formattedDateStr = formatDate(currentDateIter);
+                        const isHoliday = holidays.has(formattedDateStr);
+
+                        daysInPeriod.push({
+                            date: formattedDateStr,
+                            hours: (isWeekday && !isHoliday) ? 5 : 0,
+                            isWeekday: isWeekday,
+                            isHoliday: isHoliday,
+                        });
+                        currentDateIter.setDate(currentDateIter.getDate() + 1);
+                    }
+
+                    periods.push({
+                        id: `${currentYear}-${i}`,
+                        monthName: salaryMonthName,
+                        periodStart: formatDate(periodStart),
+                        periodEnd: formatDate(periodEnd),
+                        days: daysInPeriod,
+                        monthlyTotalHours: 0,
+                        monthlySalary: 0,
+                        isExpanded: false, 
+                        quickFillHours: 5 
+                    });
+                }
+                setYearlyPeriods(periods);
+                setAnnualTotalSalary(0); 
+                setErrorMessage('');
+                setShowMessageBox(false);
+            }, [monthNames, getBrazilianHolidays, formatDate]);
+
+            React.useEffect(() => {
+                initializePeriods(selectedYear);
+            }, [selectedYear, initializePeriods]);
+
+            const handleHourlyRateChange = (e) => {
+                const value = parseFloat(e.target.value);
+                const newHourlyRate = isNaN(value) || value < 0 ? 0 : value;
+                setHourlyRate(newHourlyRate);
+                setYearlyPeriods(prev => prev.map(p => ({ 
+                    ...p, 
+                    monthlySalary: 0, // Resetar salário mensal pois a taxa mudou
+                    // monthlyTotalHours: 0, // Opcional: resetar horas se a lógica exigir
+                })));
+                setAnnualTotalSalary(0); 
+            };
+            
+            const handleSelectedYearChange = (e) => {
+                const yearValue = e.target.value;
+                setSelectedYear(yearValue);
+                // initializePeriods será chamado pelo useEffect
+            };
+
+            const handleDailyHoursChange = React.useCallback((periodIndex, dayIndex, hoursStr) => {
+                const hours = parseFloat(hoursStr);
+                const newHours = isNaN(hours) || hours < 0 ? 0 : (hours > 24 ? 24 : hours) ;
+
+                setYearlyPeriods((prevYearlyPeriods) => {
+                    const newYearlyPeriods = [...prevYearlyPeriods];
+                    const periodToUpdate = { ...newYearlyPeriods[periodIndex] };
+                    const newDays = [...periodToUpdate.days];
+                    
+                    newDays[dayIndex] = { ...newDays[dayIndex], hours: newHours };
+                    
+                    periodToUpdate.days = newDays;
+                    // Resetar salário do mês pois as horas mudaram
+                    periodToUpdate.monthlyTotalHours = 0; 
+                    periodToUpdate.monthlySalary = 0;   
+                    newYearlyPeriods[periodIndex] = periodToUpdate;
+                    return newYearlyPeriods;
                 });
-                currentDate.setDate(currentDate.getDate() + 1);
-              }
-              setDailyHours(days);
-              setErrorMessage('');
-              setShowMessageBox(false);
-            }
-          }, [startDate, endDate]);
+                // Resetar total anual pois um cálculo mensal está inválido
+                setAnnualTotalSalary(0); 
+            }, []);
 
-          const handleHourlyRateChange = (e) => {
-            const value = parseFloat(e.target.value);
-            setHourlyRate(isNaN(value) ? 0 : value);
-          };
+            const toggleMonthExpansion = React.useCallback((periodIndex) => {
+                // Esta função é mais para controle de estado React, se necessário.
+                // O <details> nativo já controla a expansão visualmente.
+                setYearlyPeriods(prevYearlyPeriods => 
+                    prevYearlyPeriods.map((period, index) => 
+                        index === periodIndex ? { ...period, isExpanded: !period.isExpanded } : period
+                    )
+                );
+            }, []);
 
-          const handleDailyHoursChange = React.useCallback((index, hours) => {
-            setDailyHours((prevDailyHours) => {
-              const newDailyHours = [...prevDailyHours];
-              newDailyHours[index] = { ...newDailyHours[index], hours: parseInt(hours, 10) };
-              return newDailyHours;
-            });
-          }, []);
+            const handleQuickFillHoursChange = React.useCallback((periodIndex, hoursStr) => {
+                const hours = parseFloat(hoursStr);
+                const newQuickFillHours = isNaN(hours) || hours < 0 ? 0 : (hours > 24 ? 24 : hours);
+                setYearlyPeriods(prevYearlyPeriods => 
+                    prevYearlyPeriods.map((period, index) =>
+                        index === periodIndex ? { ...period, quickFillHours: newQuickFillHours } : period
+                    )
+                );
+            }, []);
 
-          const calculateSalary = () => {
-            if (!hourlyRate || hourlyRate <= 0) {
-              setErrorMessage('Por favor, insira uma taxa horária válida e maior que zero.');
-              setShowMessageBox(true);
-              setTotalSalary(0);
-              return;
-            }
+            const applyQuickFill = React.useCallback((periodIndex) => {
+                setYearlyPeriods(prevYearlyPeriods => {
+                    const newPeriods = [...prevYearlyPeriods];
+                    const periodToUpdate = { ...newPeriods[periodIndex] };
+                    const fillHours = periodToUpdate.quickFillHours;
 
-            let totalHours = 0;
-            dailyHours.forEach((day) => {
-              totalHours += day.hours;
-            });
+                    const updatedDays = periodToUpdate.days.map(day => {
+                        if (day.isWeekday && !day.isHoliday) {
+                            return { ...day, hours: fillHours };
+                        }
+                        return day; 
+                    });
 
-            const calculatedSalary = totalHours * hourlyRate;
-            setTotalSalary(calculatedSalary);
-            setErrorMessage('');
-            setShowMessageBox(false);
-          };
+                    periodToUpdate.days = updatedDays;
+                    periodToUpdate.monthlyTotalHours = 0; 
+                    periodToUpdate.monthlySalary = 0;   
+                    newPeriods[periodIndex] = periodToUpdate;
+                    return newPeriods;
+                });
+                setAnnualTotalSalary(0); 
+            }, []);
 
-          const MessageBox = ({ message, onClose }) => (
-            <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
-                <p className="text-lg font-semibold text-red-600 mb-4">{message}</p>
-                <button
-                  onClick={onClose}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200"
-                >
-                  Fechar
-                </button>
-              </div>
-            </div>
-          );
+            const calculateMonthlySalary = React.useCallback((periodIndex) => {
+                if (!hourlyRate || hourlyRate <= 0) {
+                    setErrorMessage('Por favor, insira uma taxa horária válida e maior que zero.');
+                    setShowMessageBox(true);
+                    return;
+                }
 
-          return (
-            <div className="min-h-screen bg-gradient-to-br from-blue-100 to-purple-100 p-4 sm:p-8 flex items-center justify-center font-inter">
-              <div className="bg-white p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-4xl">
-                <h1 className="text-3xl sm:text-4xl font-extrabold text-center text-gray-800 mb-8">
-                  Calculadora de Salário
-                </h1>
+                let newAnnualTotalFromThisUpdate = 0; // Acumulador para o total anual
+                setYearlyPeriods(prevYearlyPeriods => {
+                    const newYearlyPeriods = prevYearlyPeriods.map((period, index) => {
+                        if (index === periodIndex) { // Calcula/recalcula o mês selecionado
+                            let currentMonthlyTotalHours = 0;
+                            period.days.forEach(day => {
+                                currentMonthlyTotalHours += day.hours;
+                            });
+                            const currentMonthlySalary = currentMonthlyTotalHours * hourlyRate;
+                            const updatedPeriod = {
+                                ...period,
+                                monthlyTotalHours: currentMonthlyTotalHours,
+                                monthlySalary: currentMonthlySalary
+                            };
+                            newAnnualTotalFromThisUpdate += currentMonthlySalary; // Adiciona o salário deste mês
+                            return updatedPeriod;
+                        }
+                        // Para os outros meses, adiciona o salário já calculado (se houver)
+                        newAnnualTotalFromThisUpdate += period.monthlySalary; 
+                        return period;
+                    });
+                    return newYearlyPeriods;
+                });
+                
+                setAnnualTotalSalary(newAnnualTotalFromThisUpdate); // Atualiza o total anual
+                setErrorMessage('');
+                setShowMessageBox(false);
+            }, [hourlyRate]);
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                  <div className="flex flex-col">
-                    <label htmlFor="hourlyRate" className="text-gray-700 font-medium mb-2">
-                      Taxa Horária (R$)
-                    </label>
-                    <input
-                      type="number"
-                      id="hourlyRate"
-                      value={hourlyRate}
-                      onChange={handleHourlyRateChange}
-                      className="p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-200 shadow-sm"
-                      step="0.01"
-                      min="0"
-                      aria-label="Taxa Horária"
-                    />
-                  </div>
+            const calculateAnnualSalary = () => {
+                if (!hourlyRate || hourlyRate <= 0) {
+                    setErrorMessage('Por favor, insira uma taxa horária válida e maior que zero.');
+                    setShowMessageBox(true);
+                    setAnnualTotalSalary(0);
+                    return;
+                }
 
-                  <div className="flex flex-col">
-                    <label htmlFor="startDate" className="text-gray-700 font-medium mb-2">
-                      Data de Início
-                    </label>
-                    <input
-                      type="date"
-                      id="startDate"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      className="p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-200 shadow-sm"
-                      aria-label="Data de Início"
-                    />
-                  </div>
+                // Verifica se todos os meses com horas preenchidas tiveram seus salários calculados
+                const monthsNotCalculated = yearlyPeriods.some(period => 
+                    period.days.some(d => d.hours > 0) && period.monthlySalary === 0
+                );
 
-                  <div className="flex flex-col">
-                    <label htmlFor="endDate" className="text-gray-700 font-medium mb-2">
-                      Data de Término
-                    </label>
-                    <input
-                      type="date"
-                      id="endDate"
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
-                      className="p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-200 shadow-sm"
-                      aria-label="Data de Término"
-                    />
-                  </div>
-                </div>
+                if (monthsNotCalculated) {
+                    setErrorMessage('Por favor, calcule o salário de todos os meses com horas preenchidas antes de calcular o total anual.');
+                    setShowMessageBox(true);
+                    return;
+                }
 
-                <div className="mb-8 bg-gray-50 p-4 rounded-lg shadow-inner max-h-96 overflow-y-auto">
-                  <h2 className="text-xl font-semibold text-gray-800 mb-4">Horas Diárias Trabalhadas</h2>
-                  {dailyHours.length === 0 && startDate && endDate && (
-                    <p className="text-gray-600 text-center py-4">
-                      Nenhum dia para exibir. Por favor, selecione um período de data válido.
-                    </p>
-                  )}
-                  {dailyHours.map((day, index) => (
-                    <div key={day.date} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 border-b border-gray-200 last:border-b-0">
-                      <span className="text-gray-700 font-medium mb-2 sm:mb-0 w-32">{day.date}</span>
-                      <div className="flex items-center space-x-4">
-                        <label className="inline-flex items-center cursor-pointer">
-                          <input
-                            type="radio"
-                            name={`hours-${day.date}`}
-                            value="5"
-                            checked={day.hours === 5}
-                            onChange={() => handleDailyHoursChange(index, 5)}
-                            className="form-radio h-5 w-5 text-blue-600"
-                            disabled={!day.isWeekday}
-                          />
-                          <span className="ml-2 text-gray-700">5 horas</span>
-                        </label>
-                        <label className="inline-flex items-center cursor-pointer">
-                          <input
-                            type="radio"
-                            name={`hours-${day.date}`}
-                            value="6"
-                            checked={day.hours === 6}
-                            onChange={() => handleDailyHoursChange(index, 6)}
-                            className="form-radio h-5 w-5 text-blue-600"
-                            disabled={!day.isWeekday}
-                          />
-                          <span className="ml-2 text-gray-700">6 horas</span>
-                        </label>
-                        <label className="inline-flex items-center cursor-pointer">
-                          <input
-                            type="radio"
-                            name={`hours-${day.date}`}
-                            value="0"
-                            checked={day.hours === 0}
-                            onChange={() => handleDailyHoursChange(index, 0)}
-                            className="form-radio h-5 w-5 text-blue-600"
-                          />
-                          <span className="ml-2 text-gray-700">Não trabalhou</span>
-                        </label>
-                      </div>
+                let totalAnnualSalary = 0;
+                const updatedYearlyPeriods = yearlyPeriods.map(period => {
+                    // Se o salário mensal já foi calculado e é > 0, usa ele.
+                    // Caso contrário, recalcula (isso garante que se as horas foram zeradas após cálculo, o salário também zere)
+                    let currentMonthlyTotalHours = 0;
+                    period.days.forEach(day => {
+                        currentMonthlyTotalHours += day.hours;
+                    });
+                    const monthlySalary = currentMonthlyTotalHours * hourlyRate;
+                    totalAnnualSalary += monthlySalary;
+                    
+                    return { // Retorna o período atualizado para garantir consistência no estado
+                        ...period,
+                        monthlyTotalHours: currentMonthlyTotalHours,
+                        monthlySalary: monthlySalary 
+                    };
+                });
+
+                setYearlyPeriods(updatedYearlyPeriods); // Atualiza os períodos com os salários recalculados se necessário
+                setAnnualTotalSalary(totalAnnualSalary);
+                setErrorMessage('');
+                setShowMessageBox(false);
+            };
+
+            const resetAllCalculations = React.useCallback(() => {
+                // Mantém o ano selecionado, mas reinicializa os períodos para ele
+                initializePeriods(selectedYear); 
+                setHourlyRate(12.94); 
+                // annualTotalSalary será resetado por initializePeriods
+                setErrorMessage('');
+                setShowMessageBox(false);
+            }, [selectedYear, initializePeriods]); 
+
+            const MessageBox = ({ message, onClose }) => (
+                <div className="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 p-4">
+                    <div className="bg-gray-800 p-6 rounded-lg shadow-xl max-w-sm w-full text-center border border-red-500">
+                        <p className="text-lg font-semibold text-red-400 mb-4">{message}</p>
+                        <button
+                            onClick={onClose}
+                            className="px-6 py-2 bg-blue-700 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200"
+                        >
+                            Fechar
+                        </button>
                     </div>
-                  ))}
                 </div>
+            );
 
-                <button
-                  onClick={calculateSalary}
-                  className="w-full py-3 bg-green-600 text-white font-bold text-lg rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 transition duration-300 transform hover:scale-105"
-                >
-                  Calcular Salário
-                </button>
+            return (
+                // Container principal da aplicação
+                <div className="min-h-screen bg-gray-900 text-gray-100 p-4 sm:p-8 flex flex-col items-center justify-start font-inter">
+                    {/* Card principal da calculadora */}
+                    <div className="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-4xl border border-gray-700">
+                        <h1 className="text-3xl sm:text-4xl font-extrabold text-center text-blue-400 mb-8">
+                            Calculadora de Salário Final
+                        </h1>
 
-                {totalSalary > 0 && (
-                  <div className="mt-8 p-6 bg-blue-50 border-l-4 border-blue-500 rounded-lg shadow-lg text-center">
-                    <h2 className="text-2xl font-bold text-blue-800 mb-2">Salário Total Estimado:</h2>
-                    <p className="text-4xl font-extrabold text-blue-900">
-                      R$ {totalSalary.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </p>
-                  </div>
-                )}
+                        {/* Seção de inputs: Taxa Horária e Ano */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                            {/* Input Taxa Horária */}
+                            <div className="flex flex-col">
+                                <label htmlFor="hourlyRate" className="text-gray-300 font-medium mb-2">
+                                    Taxa Horária (R$)
+                                </label>
+                                <input
+                                    type="number"
+                                    id="hourlyRate"
+                                    value={hourlyRate}
+                                    onChange={handleHourlyRateChange}
+                                    className="p-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-200 shadow-sm text-gray-100 appearance-none"
+                                    style={{ MozAppearance: 'textfield' }} /* Para Firefox esconder os seletores */
+                                    step="0.01"
+                                    min="0"
+                                    aria-label="Taxa Horária"
+                                />
+                            </div>
 
-                {showMessageBox && (
-                  <MessageBox message={errorMessage} onClose={() => setShowMessageBox(false)} />
-                )}
-              </div>
-            </div>
-          );
+                            {/* Input Ano de Cálculo */}
+                            <div className="flex flex-col">
+                                <label htmlFor="selectedYear" className="text-gray-300 font-medium mb-2">
+                                    Ano de Cálculo
+                                </label>
+                                <input
+                                    type="number"
+                                    id="selectedYear"
+                                    value={selectedYear}
+                                    onChange={handleSelectedYearChange}
+                                    className="p-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-200 shadow-sm text-gray-100 appearance-none"
+                                    style={{ MozAppearance: 'textfield' }} /* Para Firefox esconder os seletores */
+                                    min="1900"
+                                    max="2100"
+                                    aria-label="Ano de Cálculo"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Botão de Resetar */}
+                        <div className="text-center mb-6">
+                            <button
+                                onClick={resetAllCalculations}
+                                className="py-2 px-6 bg-red-600 text-white font-bold rounded-lg shadow-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 transition duration-300"
+                            >
+                                Resetar Tudo
+                            </button>
+                        </div>
+
+                        {/* Seção de Períodos Mensais - Layout em Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+                            {/* Mensagem se nenhum período for carregado (ano inválido, por exemplo) */}
+                            {yearlyPeriods.length === 0 && !showMessageBox && (
+                                <p className="text-gray-400 text-center py-4 col-span-full">
+                                    Selecione um ano válido para visualizar os períodos de trabalho.
+                                </p>
+                            )}
+                            {/* Mapeia e renderiza cada período mensal */}
+                            {yearlyPeriods.map((period, periodIndex) => (
+                                <div key={period.id} className="bg-gray-700 rounded-lg shadow-md border border-gray-600 overflow-hidden flex flex-col">
+                                    {/* Cabeçalho do card do mês */}
+                                    <div className="p-4 bg-gray-600 font-semibold text-gray-200 text-lg flex flex-col sm:flex-row items-start sm:items-center justify-between">
+                                        <span className="mb-2 sm:mb-0 text-base">
+                                            {/* Formata as datas do período para exibição */}
+                                            {period.monthName} ({new Date(period.periodStart.replace(/-/g, '/')).toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit', timeZone: 'UTC'})} a {new Date(period.periodEnd.replace(/-/g, '/')).toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit', timeZone: 'UTC'})})
+                                        </span>
+                                        {/* Exibe o salário mensal se calculado */}
+                                        {period.monthlySalary > 0 && (
+                                            <span className="text-blue-300 font-bold text-lg whitespace-nowrap"> 
+                                                R$ {period.monthlySalary.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    {/* Corpo do card do mês */}
+                                    <div className="p-4 bg-gray-700 border-t border-gray-600 flex-grow flex flex-col justify-between">
+                                        <div>
+                                            {/* Seção de Preenchimento Rápido */}
+                                            <div className="mb-4 p-3 bg-gray-800 rounded-md border border-gray-700">
+                                                <label htmlFor={`quickFill-${period.id}`} className="block text-gray-300 font-medium mb-2 text-sm">
+                                                    Preencher dias úteis com:
+                                                </label>
+                                                <div className="flex items-center space-x-2">
+                                                    <input
+                                                        type="number"
+                                                        id={`quickFill-${period.id}`}
+                                                        value={period.quickFillHours}
+                                                        onChange={(e) => handleQuickFillHoursChange(periodIndex, e.target.value)}
+                                                        className="p-2 bg-gray-700 border border-gray-600 rounded-md w-20 text-center focus:ring-blue-500 focus:border-blue-500 transition duration-200 text-gray-100 appearance-none"
+                                                        style={{ MozAppearance: 'textfield' }}
+                                                        step="0.5"
+                                                        min="0"
+                                                        max="24" // Limite de horas
+                                                        aria-label="Preencher horas"
+                                                    />
+                                                    <button
+                                                        onClick={() => applyQuickFill(periodIndex)}
+                                                        className="flex-grow py-2 px-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 transition duration-200 text-sm"
+                                                    >
+                                                        Preencher Mês
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {/* Botão Calcular Salário do Mês */}
+                                            <button
+                                                onClick={() => calculateMonthlySalary(periodIndex)}
+                                                className="mt-2 w-full py-2 bg-blue-700 text-white font-semibold rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200"
+                                            >
+                                                Calcular Salário do Mês
+                                            </button>
+                                        </div>
+
+                                        {/* Detalhes para ajuste individual dos dias */}
+                                        <details className="w-full mt-4 border-t border-gray-600 pt-3">
+                                            <summary
+                                                className="flex items-center p-2 bg-gray-700 hover:bg-gray-700/70 transition duration-200 font-medium text-gray-200 rounded-md cursor-pointer"
+                                                // onClick={(e) => { toggleMonthExpansion(periodIndex); }} // Opcional, se precisar controlar estado
+                                            >
+                                                Ajustar dias específicos
+                                            </summary>
+                                            {/* Lista de dias com scroll */}
+                                            <div className="max-h-60 overflow-y-auto pr-1 pt-2 mt-1 space-y-2"> 
+                                                {period.days.map((day, dayIndex) => (
+                                                    <div key={day.date} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-2 bg-gray-800 rounded-md border border-gray-600">
+                                                        <span className="text-gray-300 text-sm font-medium mb-2 sm:mb-0 sm:w-32">
+                                                            {/* Formata data do dia para exibição */}
+                                                            {new Date(day.date.replace(/-/g, '/')).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'UTC' })}
+                                                            {day.isHoliday && <span className="text-red-400 ml-1 text-xs">(F)</span>}
+                                                            {!day.isWeekday && !day.isHoliday && <span className="text-yellow-400 ml-1 text-xs">(FS)</span>}
+                                                        </span>
+                                                        <div className="flex items-center space-x-2">
+                                                            <label className="text-gray-400 text-sm">Horas:</label>
+                                                            <input
+                                                                type="number"
+                                                                value={day.hours}
+                                                                onChange={(e) => handleDailyHoursChange(periodIndex, dayIndex, e.target.value)}
+                                                                className="p-1 bg-gray-700 border border-gray-600 rounded-md w-20 text-center focus:ring-blue-500 focus:border-blue-500 transition duration-200 text-gray-100 text-sm appearance-none"
+                                                                style={{ MozAppearance: 'textfield' }}
+                                                                step="0.5"
+                                                                min="0"
+                                                                max="24" // Limite de horas
+                                                                aria-label={`Horas para ${day.date}`}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </details>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Botão Calcular Salário Anual Completo */}
+                        <button
+                            onClick={calculateAnnualSalary}
+                            className="w-full py-3 bg-green-600 text-white font-bold text-lg rounded-lg shadow-md hover:bg-green-500 focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-opacity-50 transition duration-300 transform hover:scale-105"
+                            aria-label="Calcular Salário Anual"
+                            disabled={yearlyPeriods.length === 0} // Desabilita se não houver períodos
+                        >
+                            Calcular Salário Anual Completo
+                        </button>
+
+                        {/* Display do Resultado Anual */}
+                        {annualTotalSalary > 0 && (
+                            <div className="mt-8 p-6 bg-blue-900/50 border-l-4 border-blue-600 rounded-lg shadow-lg text-center">
+                                <h2 className="text-2xl font-bold text-blue-300 mb-2">Salário Total Anual Estimado:</h2>
+                                <p className="text-4xl font-extrabold text-blue-100">
+                                    R$ {annualTotalSalary.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </p>
+                            </div>
+                        )}
+
+                        {/* Caixa de Mensagem de Erro/Aviso */}
+                        {showMessageBox && (
+                            <MessageBox message={errorMessage} onClose={() => setShowMessageBox(false)} />
+                        )}
+                    </div>
+                </div>
+            );
         }
 
-        // Renderiza o aplicativo React no elemento com id "root"
-        ReactDOM.render(<App />, document.getElementById('root'));
+        // Usa a API createRoot do React 18
+        const container = document.getElementById('root');
+        const root = ReactDOM.createRoot(container);
+        root.render(<App />);
     </script>
 </body>
 </html>
+```
+
+**Principais alterações/sugestões no código acima:**
+
+1.  **Carregamento da Fonte:** Movi o `@import url('https://fonts.googleapis.com/css2?family=Inter:...')` de dentro da tag `<style>` para uma tag `<link rel="stylesheet" href="...">` no `<head>`. Isso é geralmente uma prática melhor para carregar fontes.
+2.  **Consistência na Formatação de Datas (`formatDate`)**: Ajustei a função `formatDate` e seu uso na exibição das datas dos períodos e dias para usar `timeZone: 'UTC'` ao converter para string. Isso ajuda a evitar que as datas mudem dependendo do fuso horário do navegador do usuário, garantindo que a data exibida seja sempre a que você espera. Também adicionei `formatDate` como dependência nos `React.useCallback` onde era utilizado.
+3.  **Validação no Cálculo Anual:** Adicionei uma verificação no `calculateAnnualSalary` para sugerir ao usuário que calcule os salários mensais primeiro, caso haja meses com horas preenchidas mas sem salário calculado.
+4.  **Inputs Numéricos:** Adicionei `style={{ MozAppearance: 'textfield' }}` e mantive `className="appearance-none"` nos inputs numéricos para tentar remover os seletores de incremento/decremento padrão em mais navegadores (especialmente Firefox) e melhorar a consistência visual.
+5.  **Limite de Horas:** Adicionei um `max="24"` nos inputs de horas diárias e de preenchimento rápido.
+
+**Para o GitHub Pages especificamente:**
+
+* **Nome do arquivo:** Certifique-se de que este arquivo se chama `index.html` e está na raiz do seu repositório `calculadora` (ou na pasta configurada para o GitHub Pages, que geralmente é a raiz da branch `main` ou `master`). Pelo link que você passou, parece que já está correto.
+* **Arquivo `.nojekyll` (Opcional, mas recomendado):**
+    Para garantir que o GitHub Pages sirva seus arquivos exatamente como estão, sem tentar processá-los com o Jekyll (um gerador de site estático que o GitHub Pages usa por padrão para alguns projetos), você pode adicionar um arquivo vazio chamado `.nojekyll` (sim, com um ponto no início e sem extensão) na raiz do seu repositório.
+    * **Como fazer:** No seu repositório no GitHub, clique em "Add file" -> "Create new file". Dê o nome `.nojekyll` e clique em "Commit new file". Não precisa colocar nada dentro do arquivo.
+
+No geral, seu código já estava bem preparado para o GitHub Pages. As mudanças são mais refinamentos. Se você tiver algum problema específico que está enfrentando, me diga para que eu possa ajudar de forma mais direciona
