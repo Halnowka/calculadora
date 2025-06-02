@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculadora de Salário</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Adicione estilos personalizados aqui se precisar, ou substitua pelos estilos React do Tailwind */
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+                'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+                sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script type="text/babel">
+        // Cole o código do seu aplicativo React aqui
+        function App() {
+          const [hourlyRate, setHourlyRate] = React.useState(12.94);
+          const [startDate, setStartDate] = React.useState('');
+          const [endDate, setEndDate] = React.useState('');
+          const [dailyHours, setDailyHours] = React.useState([]);
+          const [totalSalary, setTotalSalary] = React.useState(0);
+          const [errorMessage, setErrorMessage] = React.useState('');
+          const [showMessageBox, setShowMessageBox] = React.useState(false);
+
+          const formatDate = (date) => {
+            const d = new Date(date);
+            if (isNaN(d.getTime())) {
+              return '';
+            }
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+          };
+
+          React.useEffect(() => {
+            const today = new Date();
+            const currentYear = today.getFullYear();
+            const currentMonth = today.getMonth();
+
+            const startMonthIndex = currentMonth - 2;
+            const endMonthIndex = currentMonth - 1;
+
+            const defaultStartDate = new Date(currentYear, startMonthIndex, 21);
+            const defaultEndDate = new Date(currentYear, endMonthIndex, 20);
+
+            setStartDate(formatDate(defaultStartDate));
+            setEndDate(formatDate(defaultEndDate));
+          }, []);
+
+          React.useEffect(() => {
+            if (startDate && endDate) {
+              const start = new Date(startDate);
+              const end = new Date(endDate);
+
+              if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+                setErrorMessage('Datas de início ou término inválidas. Por favor, verifique.');
+                setShowMessageBox(true);
+                setDailyHours([]);
+                return;
+              }
+
+              if (start > end) {
+                setErrorMessage('A data de início não pode ser posterior à data de término.');
+                setShowMessageBox(true);
+                setDailyHours([]);
+                return;
+              }
+
+              const days = [];
+              let currentDate = new Date(start);
+
+              while (currentDate <= end) {
+                const dayOfWeek = currentDate.getDay();
+                const isWeekday = dayOfWeek !== 0 && dayOfWeek !== 6;
+
+                days.push({
+                  date: formatDate(currentDate),
+                  hours: isWeekday ? 5 : 0,
+                  isWeekday: isWeekday,
+                });
+                currentDate.setDate(currentDate.getDate() + 1);
+              }
+              setDailyHours(days);
+              setErrorMessage('');
+              setShowMessageBox(false);
+            }
+          }, [startDate, endDate]);
+
+          const handleHourlyRateChange = (e) => {
+            const value = parseFloat(e.target.value);
+            setHourlyRate(isNaN(value) ? 0 : value);
+          };
+
+          const handleDailyHoursChange = React.useCallback((index, hours) => {
+            setDailyHours((prevDailyHours) => {
+              const newDailyHours = [...prevDailyHours];
+              newDailyHours[index] = { ...newDailyHours[index], hours: parseInt(hours, 10) };
+              return newDailyHours;
+            });
+          }, []);
+
+          const calculateSalary = () => {
+            if (!hourlyRate || hourlyRate <= 0) {
+              setErrorMessage('Por favor, insira uma taxa horária válida e maior que zero.');
+              setShowMessageBox(true);
+              setTotalSalary(0);
+              return;
+            }
+
+            let totalHours = 0;
+            dailyHours.forEach((day) => {
+              totalHours += day.hours;
+            });
+
+            const calculatedSalary = totalHours * hourlyRate;
+            setTotalSalary(calculatedSalary);
+            setErrorMessage('');
+            setShowMessageBox(false);
+          };
+
+          const MessageBox = ({ message, onClose }) => (
+            <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
+                <p className="text-lg font-semibold text-red-600 mb-4">{message}</p>
+                <button
+                  onClick={onClose}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          );
+
+          return (
+            <div className="min-h-screen bg-gradient-to-br from-blue-100 to-purple-100 p-4 sm:p-8 flex items-center justify-center font-inter">
+              <div className="bg-white p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-4xl">
+                <h1 className="text-3xl sm:text-4xl font-extrabold text-center text-gray-800 mb-8">
+                  Calculadora de Salário
+                </h1>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                  <div className="flex flex-col">
+                    <label htmlFor="hourlyRate" className="text-gray-700 font-medium mb-2">
+                      Taxa Horária (R$)
+                    </label>
+                    <input
+                      type="number"
+                      id="hourlyRate"
+                      value={hourlyRate}
+                      onChange={handleHourlyRateChange}
+                      className="p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-200 shadow-sm"
+                      step="0.01"
+                      min="0"
+                      aria-label="Taxa Horária"
+                    />
+                  </div>
+
+                  <div className="flex flex-col">
+                    <label htmlFor="startDate" className="text-gray-700 font-medium mb-2">
+                      Data de Início
+                    </label>
+                    <input
+                      type="date"
+                      id="startDate"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-200 shadow-sm"
+                      aria-label="Data de Início"
+                    />
+                  </div>
+
+                  <div className="flex flex-col">
+                    <label htmlFor="endDate" className="text-gray-700 font-medium mb-2">
+                      Data de Término
+                    </label>
+                    <input
+                      type="date"
+                      id="endDate"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-200 shadow-sm"
+                      aria-label="Data de Término"
+                    />
+                  </div>
+                </div>
+
+                <div className="mb-8 bg-gray-50 p-4 rounded-lg shadow-inner max-h-96 overflow-y-auto">
+                  <h2 className="text-xl font-semibold text-gray-800 mb-4">Horas Diárias Trabalhadas</h2>
+                  {dailyHours.length === 0 && startDate && endDate && (
+                    <p className="text-gray-600 text-center py-4">
+                      Nenhum dia para exibir. Por favor, selecione um período de data válido.
+                    </p>
+                  )}
+                  {dailyHours.map((day, index) => (
+                    <div key={day.date} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 border-b border-gray-200 last:border-b-0">
+                      <span className="text-gray-700 font-medium mb-2 sm:mb-0 w-32">{day.date}</span>
+                      <div className="flex items-center space-x-4">
+                        <label className="inline-flex items-center cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`hours-${day.date}`}
+                            value="5"
+                            checked={day.hours === 5}
+                            onChange={() => handleDailyHoursChange(index, 5)}
+                            className="form-radio h-5 w-5 text-blue-600"
+                            disabled={!day.isWeekday}
+                          />
+                          <span className="ml-2 text-gray-700">5 horas</span>
+                        </label>
+                        <label className="inline-flex items-center cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`hours-${day.date}`}
+                            value="6"
+                            checked={day.hours === 6}
+                            onChange={() => handleDailyHoursChange(index, 6)}
+                            className="form-radio h-5 w-5 text-blue-600"
+                            disabled={!day.isWeekday}
+                          />
+                          <span className="ml-2 text-gray-700">6 horas</span>
+                        </label>
+                        <label className="inline-flex items-center cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`hours-${day.date}`}
+                            value="0"
+                            checked={day.hours === 0}
+                            onChange={() => handleDailyHoursChange(index, 0)}
+                            className="form-radio h-5 w-5 text-blue-600"
+                          />
+                          <span className="ml-2 text-gray-700">Não trabalhou</span>
+                        </label>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  onClick={calculateSalary}
+                  className="w-full py-3 bg-green-600 text-white font-bold text-lg rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 transition duration-300 transform hover:scale-105"
+                >
+                  Calcular Salário
+                </button>
+
+                {totalSalary > 0 && (
+                  <div className="mt-8 p-6 bg-blue-50 border-l-4 border-blue-500 rounded-lg shadow-lg text-center">
+                    <h2 className="text-2xl font-bold text-blue-800 mb-2">Salário Total Estimado:</h2>
+                    <p className="text-4xl font-extrabold text-blue-900">
+                      R$ {totalSalary.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                )}
+
+                {showMessageBox && (
+                  <MessageBox message={errorMessage} onClose={() => setShowMessageBox(false)} />
+                )}
+              </div>
+            </div>
+          );
+        }
+
+        // Renderiza o aplicativo React no elemento com id "root"
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
