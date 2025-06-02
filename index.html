@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calculadora de Salário Final</title>
+    <title>Calculadora esteio</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
@@ -597,21 +597,3 @@
     </script>
 </body>
 </html>
-```
-
-**Principais alterações/sugestões no código acima:**
-
-1.  **Carregamento da Fonte:** Movi o `@import url('https://fonts.googleapis.com/css2?family=Inter:...')` de dentro da tag `<style>` para uma tag `<link rel="stylesheet" href="...">` no `<head>`. Isso é geralmente uma prática melhor para carregar fontes.
-2.  **Consistência na Formatação de Datas (`formatDate`)**: Ajustei a função `formatDate` e seu uso na exibição das datas dos períodos e dias para usar `timeZone: 'UTC'` ao converter para string. Isso ajuda a evitar que as datas mudem dependendo do fuso horário do navegador do usuário, garantindo que a data exibida seja sempre a que você espera. Também adicionei `formatDate` como dependência nos `React.useCallback` onde era utilizado.
-3.  **Validação no Cálculo Anual:** Adicionei uma verificação no `calculateAnnualSalary` para sugerir ao usuário que calcule os salários mensais primeiro, caso haja meses com horas preenchidas mas sem salário calculado.
-4.  **Inputs Numéricos:** Adicionei `style={{ MozAppearance: 'textfield' }}` e mantive `className="appearance-none"` nos inputs numéricos para tentar remover os seletores de incremento/decremento padrão em mais navegadores (especialmente Firefox) e melhorar a consistência visual.
-5.  **Limite de Horas:** Adicionei um `max="24"` nos inputs de horas diárias e de preenchimento rápido.
-
-**Para o GitHub Pages especificamente:**
-
-* **Nome do arquivo:** Certifique-se de que este arquivo se chama `index.html` e está na raiz do seu repositório `calculadora` (ou na pasta configurada para o GitHub Pages, que geralmente é a raiz da branch `main` ou `master`). Pelo link que você passou, parece que já está correto.
-* **Arquivo `.nojekyll` (Opcional, mas recomendado):**
-    Para garantir que o GitHub Pages sirva seus arquivos exatamente como estão, sem tentar processá-los com o Jekyll (um gerador de site estático que o GitHub Pages usa por padrão para alguns projetos), você pode adicionar um arquivo vazio chamado `.nojekyll` (sim, com um ponto no início e sem extensão) na raiz do seu repositório.
-    * **Como fazer:** No seu repositório no GitHub, clique em "Add file" -> "Create new file". Dê o nome `.nojekyll` e clique em "Commit new file". Não precisa colocar nada dentro do arquivo.
-
-No geral, seu código já estava bem preparado para o GitHub Pages. As mudanças são mais refinamentos. Se você tiver algum problema específico que está enfrentando, me diga para que eu possa ajudar de forma mais direciona
