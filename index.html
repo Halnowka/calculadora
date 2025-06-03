@@ -3,9 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calculadora esteio</title>
+    <title>Calculadora de Salário Final com Persistência</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore-compat.js"></script>
+
     <style>
         body {
             margin: 0;
@@ -14,46 +19,32 @@
                 sans-serif;
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
-            background-color: #1a202c; /* Cor de fundo Tailwind gray-900 */
-            color: #e2e8f0; /* Cor do texto Tailwind gray-200 */
+            background-color: #1a202c; /* Tailwind gray-900 */
+            color: #e2e8f0; /* Tailwind gray-200 */
         }
-        /* Custom scrollbar para navegadores webkit */
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #2d3748; /* Tailwind gray-800 */
-            border-radius: 10px;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #4a5568; /* Tailwind gray-600 */
-            border-radius: 10px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #718096; /* Tailwind gray-500 */
-        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #2d3748; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: #4a5568; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #718096; }
 
-        details summary {
-            list-style: none; /* Remove o marcador padrão */
-        }
-        details summary::-webkit-details-marker {
-            display: none; /* Remove o marcador padrão para Safari */
-        }
+        details summary { list-style: none; }
+        details summary::-webkit-details-marker { display: none; }
         details summary::before {
-            content: '►'; /* Indicador de estado recolhido */
-            margin-right: 0.5rem;
-            transition: transform 0.2s ease-in-out;
-            color: #90cdf4; /* Tailwind blue-300 */
-            display: inline-block; /* Garante que a transformação funcione */
+            content: '►'; margin-right: 0.5rem; transition: transform 0.2s ease-in-out;
+            color: #90cdf4; display: inline-block;
         }
-        details[open] summary::before {
-            transform: rotate(90deg); /* Indicador de estado expandido */
+        details[open] summary::before { transform: rotate(90deg); }
+        .font-inter { font-family: 'Inter', sans-serif; }
+        /* Estilo para inputs numéricos sem setas de incremento/decremento */
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
         }
-        .font-inter { /* Fallback se Inter for primária, já tratado no body */
-            font-family: 'Inter', sans-serif;
+        input[type=number] {
+            -moz-appearance: textfield;
         }
-        /* O @import da fonte foi movido para a tag <link> no <head> */
     </style>
 </head>
 <body>
@@ -65,64 +56,109 @@
 
     <script type="text/babel">
         function App() {
+            // Firebase state
+            const [db, setDb] = React.useState(null);
+            const [auth, setAuth] = React.useState(null);
+            const [userId, setUserId] = React.useState(null);
+            const [isAuthReady, setIsAuthReady] = React.useState(false);
+            const isInitialLoadDone = React.useRef(false); // Para controlar o primeiro carregamento de dados
+
+            // Calculator state
             const [hourlyRate, setHourlyRate] = React.useState(12.94);
             const [selectedYear, setSelectedYear] = React.useState(new Date().getFullYear().toString());
-            const [yearlyPeriods, setYearlyPeriods] = React.useState([]);
+            const [yearlyPeriods, setYearlyPeriods] = React.useState([]); // Dados do ano selecionado
+            const [allYearData, setAllYearData] = React.useState({}); // Armazena dados de todos os anos { "2024": {periods: []}, "2025": {periods: []} }
+
             const [annualTotalSalary, setAnnualTotalSalary] = React.useState(0);
             const [errorMessage, setErrorMessage] = React.useState('');
             const [showMessageBox, setShowMessageBox] = React.useState(false);
+            
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id'; // Provided by environment
 
             const monthNames = React.useMemo(() => [
                 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
                 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
             ], []);
 
-            // Função para formatar datas consistentemente, corrigindo potenciais issues de timezone na conversão para string YYYY-MM-DD
+            // --- Firebase Initialization and Auth ---
+            React.useEffect(() => {
+                try {
+                    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+                    if (!firebaseConfig) {
+                        console.error("Configuração do Firebase não encontrada.");
+                        setErrorMessage("Erro de configuração. Não é possível salvar/carregar dados.");
+                        setShowMessageBox(true);
+                        return;
+                    }
+
+                    if (!firebase.apps.length) {
+                        firebase.initializeApp(firebaseConfig);
+                    } else {
+                        firebase.app(); // if already initialized, use that one
+                    }
+                    
+                    // Corrected: setLogLevel is a static method on firebase.firestore for compat library
+                    firebase.firestore.setLogLevel('debug'); // 'debug' or 'error' 
+                    setDb(firebase.firestore());
+                    const authInstance = firebase.auth();
+                    setAuth(authInstance);
+
+                    authInstance.onAuthStateChanged(async (user) => {
+                        if (user) {
+                            setUserId(user.uid);
+                            setIsAuthReady(true);
+                        } else {
+                            // Try to sign in
+                            try {
+                                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                                    await authInstance.signInWithCustomToken(__initial_auth_token);
+                                } else {
+                                    await authInstance.signInAnonymously();
+                                }
+                                // onAuthStateChanged will be triggered again with the new user
+                            } catch (error) {
+                                console.error("Erro ao autenticar:", error);
+                                setErrorMessage("Erro de autenticação. Dados não serão salvos/carregados.");
+                                setShowMessageBox(true);
+                                setIsAuthReady(true); // Still ready, but without a user for data ops
+                            }
+                        }
+                    });
+                } catch (error) {
+                    console.error("Erro ao inicializar Firebase:", error);
+                    setErrorMessage("Erro crítico de inicialização. Funcionalidades de dados desabilitadas.");
+                    setShowMessageBox(true);
+                }
+            }, []);
+            
+            // --- Helper Functions (formatDate, getEasterSunday, getBrazilianHolidays, initializePeriods) ---
             const formatDate = React.useCallback((dateInput) => {
                 let d;
                 if (dateInput instanceof Date) {
-                    // Cria uma nova data baseada nos componentes da data original para evitar problemas de timezone na formatação
-                    // Usar UTC para evitar que a data mude dependendo do fuso horário do cliente ao criar a string
                     d = new Date(Date.UTC(dateInput.getFullYear(), dateInput.getMonth(), dateInput.getDate()));
                 } else if (typeof dateInput === 'string' && dateInput.match(/^\d{4}-\d{2}-\d{2}$/)) {
                     const parts = dateInput.split('-');
-                    // Cria a data em UTC para consistência
                     d = new Date(Date.UTC(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])));
                 } else {
-                     // Tenta parsear outros formatos de string, ou se já for um timestamp
                     const tempDate = new Date(dateInput);
                     if (!isNaN(tempDate.getTime())) {
                          d = new Date(Date.UTC(tempDate.getFullYear(), tempDate.getMonth(), tempDate.getDate()));
                     } else {
-                        console.warn("Data inválida passada para formatDate:", dateInput);
-                        return ''; // Data inválida
+                        return ''; 
                     }
                 }
-
-                if (isNaN(d.getTime())) {
-                    console.warn("Data inválida após processamento em formatDate:", dateInput);
-                    return ''; // Data inválida
-                }
-
+                if (isNaN(d.getTime())) return '';
                 const year = d.getUTCFullYear();
                 const month = String(d.getUTCMonth() + 1).padStart(2, '0');
                 const day = String(d.getUTCDate()).padStart(2, '0');
                 return `${year}-${month}-${day}`;
             }, []);
 
-
             const getEasterSunday = React.useCallback((year) => {
-                const a = year % 19;
-                const b = Math.floor(year / 100);
-                const c = year % 100;
-                const d = Math.floor(b / 4);
-                const e = b % 4;
-                const f = Math.floor((b + 8) / 25);
-                const g = Math.floor((b - f + 1) / 3);
-                const h = (19 * a + b - d - g + 15) % 30;
-                const i = Math.floor(c / 4);
-                const k = c % 4;
-                const l = (32 + 2 * e + 2 * i - h - k) % 7;
+                const a = year % 19; const b = Math.floor(year / 100); const c = year % 100;
+                const d = Math.floor(b / 4); const e = b % 4; const f = Math.floor((b + 8) / 25);
+                const g = Math.floor((b - f + 1) / 3); const h = (19 * a + b - d - g + 15) % 30;
+                const i = Math.floor(c / 4); const k = c % 4; const l = (32 + 2 * e + 2 * i - h - k) % 7;
                 const m = Math.floor((a + 11 * h + 22 * l) / 451);
                 const month = Math.floor((h + l - 7 * m + 114) / 31);
                 const day = ((h + l - 7 * m + 114) % 31) + 1;
@@ -130,166 +166,226 @@
             }, []);
 
             const getBrazilianHolidays = React.useCallback((year) => {
-                const holidays = new Set();
-                const easter = getEasterSunday(year);
-
-                holidays.add(formatDate(new Date(year, 0, 1)));
-                holidays.add(formatDate(new Date(year, 3, 21)));
-                holidays.add(formatDate(new Date(year, 4, 1)));
-                holidays.add(formatDate(new Date(year, 8, 7)));
-                holidays.add(formatDate(new Date(year, 9, 12)));
-                holidays.add(formatDate(new Date(year, 10, 2)));
-                holidays.add(formatDate(new Date(year, 10, 15)));
-                holidays.add(formatDate(new Date(year, 11, 25)));
-
-                const carnivalDate = new Date(easter.getTime());
-                carnivalDate.setDate(easter.getDate() - 47);
-                holidays.add(formatDate(carnivalDate));
-
-                const goodFridayDate = new Date(easter.getTime());
-                goodFridayDate.setDate(easter.getDate() - 2);
-                holidays.add(formatDate(goodFridayDate));
-                
-                const corpusChristiDate = new Date(easter.getTime());
-                corpusChristiDate.setDate(easter.getDate() + 60);
-                holidays.add(formatDate(corpusChristiDate));
-
+                const holidays = new Set(); const easter = getEasterSunday(year);
+                holidays.add(formatDate(new Date(year, 0, 1))); holidays.add(formatDate(new Date(year, 3, 21)));
+                holidays.add(formatDate(new Date(year, 4, 1))); holidays.add(formatDate(new Date(year, 8, 7)));
+                holidays.add(formatDate(new Date(year, 9, 12))); holidays.add(formatDate(new Date(year, 10, 2)));
+                holidays.add(formatDate(new Date(year, 10, 15))); holidays.add(formatDate(new Date(year, 11, 25)));
+                const carnivalDate = new Date(easter.getTime()); carnivalDate.setDate(easter.getDate() - 47); holidays.add(formatDate(carnivalDate));
+                const goodFridayDate = new Date(easter.getTime()); goodFridayDate.setDate(easter.getDate() - 2); holidays.add(formatDate(goodFridayDate));
+                const corpusChristiDate = new Date(easter.getTime()); corpusChristiDate.setDate(easter.getDate() + 60); holidays.add(formatDate(corpusChristiDate));
                 return holidays;
             }, [getEasterSunday, formatDate]);
 
-            const initializePeriods = React.useCallback((yearToInitStr) => {
+            const initializeYearPeriods = React.useCallback((yearToInitStr) => {
                 const currentYear = parseInt(yearToInitStr, 10);
                 if (isNaN(currentYear) || currentYear < 1900 || currentYear > 2100) {
                     setErrorMessage("Por favor, insira um ano válido (1900-2100).");
                     setShowMessageBox(true);
-                    setYearlyPeriods([]);
-                    setAnnualTotalSalary(0);
-                    return;
+                    return []; // Retorna array vazio em caso de erro
                 }
-
-                const holidays = getBrazilianHolidays(currentYear);
-                const periods = [];
+                const holidays = getBrazilianHolidays(currentYear); const periods = [];
                 for (let i = 0; i < 12; i++) {
                     const salaryMonthName = monthNames[i];
-                    const periodStart = new Date(currentYear, i - 2, 21);
-                    const periodEnd = new Date(currentYear, i - 1, 20);
-
-                    const daysInPeriod = [];
-                    let currentDateIter = new Date(periodStart.getTime());
-
+                    const periodStart = new Date(currentYear, i - 2, 21); const periodEnd = new Date(currentYear, i - 1, 20);
+                    const daysInPeriod = []; let currentDateIter = new Date(periodStart.getTime());
                     while (currentDateIter <= periodEnd) {
-                        const dayOfWeek = currentDateIter.getDay();
-                        const isWeekday = dayOfWeek !== 0 && dayOfWeek !== 6;
-                        const formattedDateStr = formatDate(currentDateIter);
-                        const isHoliday = holidays.has(formattedDateStr);
-
-                        daysInPeriod.push({
-                            date: formattedDateStr,
-                            hours: (isWeekday && !isHoliday) ? 5 : 0,
-                            isWeekday: isWeekday,
-                            isHoliday: isHoliday,
-                        });
+                        const dayOfWeek = currentDateIter.getDay(); const isWeekday = dayOfWeek !== 0 && dayOfWeek !== 6;
+                        const formattedDateStr = formatDate(currentDateIter); const isHoliday = holidays.has(formattedDateStr);
+                        daysInPeriod.push({ date: formattedDateStr, hours: (isWeekday && !isHoliday) ? 5 : 0, isWeekday: isWeekday, isHoliday: isHoliday });
                         currentDateIter.setDate(currentDateIter.getDate() + 1);
                     }
-
                     periods.push({
-                        id: `${currentYear}-${i}`,
-                        monthName: salaryMonthName,
-                        periodStart: formatDate(periodStart),
-                        periodEnd: formatDate(periodEnd),
-                        days: daysInPeriod,
-                        monthlyTotalHours: 0,
-                        monthlySalary: 0,
-                        isExpanded: false, 
-                        quickFillHours: 5 
+                        id: `${currentYear}-${i}`, monthName: salaryMonthName, periodStart: formatDate(periodStart), periodEnd: formatDate(periodEnd),
+                        days: daysInPeriod, monthlyTotalHours: 0, monthlySalary: 0, isExpanded: false, quickFillHours: 5
                     });
                 }
-                setYearlyPeriods(periods);
-                setAnnualTotalSalary(0); 
-                setErrorMessage('');
-                setShowMessageBox(false);
+                setErrorMessage(''); setShowMessageBox(false);
+                return periods;
             }, [monthNames, getBrazilianHolidays, formatDate]);
 
+
+            // --- Load Data from Firestore ---
+            const loadDataFromFirestore = React.useCallback(async () => {
+                if (!db || !userId) return;
+                console.log("Attempting to load data for user:", userId);
+                const docRef = db.collection(`artifacts/${appId}/users/${userId}/calculadoraState`).doc('main');
+                try {
+                    const docSnap = await docRef.get();
+                    // Corrected: docSnap.exists is a property in compat library
+                    if (docSnap.exists) { 
+                        const data = docSnap.data();
+                        console.log("Data loaded from Firestore:", data);
+                        if (data.globalHourlyRate !== undefined) setHourlyRate(data.globalHourlyRate);
+                        
+                        const yearToLoad = data.lastActiveYear || new Date().getFullYear().toString();
+                        setSelectedYear(yearToLoad);
+
+                        if (data.allYearData) setAllYearData(data.allYearData);
+                        
+                        // Set yearlyPeriods for the loaded/selected year
+                        if (data.allYearData && data.allYearData[yearToLoad]) {
+                            setYearlyPeriods(data.allYearData[yearToLoad].periods || initializeYearPeriods(yearToLoad));
+                        } else {
+                            setYearlyPeriods(initializeYearPeriods(yearToLoad));
+                        }
+                    } else {
+                        console.log("No data found in Firestore, initializing with defaults.");
+                        // No data, initialize with current year and default hourly rate
+                        setYearlyPeriods(initializeYearPeriods(selectedYear)); // selectedYear is already current year by default
+                        // No need to explicitly setAllYearData here, it will be populated as user interacts
+                    }
+                } catch (error) {
+                    console.error("Error loading data from Firestore:", error);
+                    setErrorMessage("Erro ao carregar dados. Usando valores padrão.");
+                    setShowMessageBox(true);
+                    setYearlyPeriods(initializeYearPeriods(selectedYear));
+                } finally {
+                    isInitialLoadDone.current = true;
+                }
+            }, [db, userId, appId, initializeYearPeriods, selectedYear]); // Added selectedYear
+
             React.useEffect(() => {
-                initializePeriods(selectedYear);
-            }, [selectedYear, initializePeriods]);
+                if (isAuthReady && db && userId && !isInitialLoadDone.current) {
+                    loadDataFromFirestore();
+                }
+            }, [isAuthReady, db, userId, loadDataFromFirestore]);
+
+
+            // --- Debounced Save Data to Firestore ---
+            const saveDataToFirestore = React.useCallback(async (dataToSave) => {
+                if (!db || !userId || !isInitialLoadDone.current) {
+                    console.log("Save prerequisites not met or initial load not done.");
+                    return;
+                }
+                console.log("Attempting to save data for user:", userId, dataToSave);
+                const docRef = db.collection(`artifacts/${appId}/users/${userId}/calculadoraState`).doc('main');
+                try {
+                    await docRef.set(dataToSave, { merge: true }); // Use merge to update fields without overwriting entire doc if not all fields are present
+                    console.log("Data saved successfully to Firestore for year:", dataToSave.lastActiveYear);
+                } catch (error) {
+                    console.error("Error saving data to Firestore:", error);
+                    setErrorMessage("Erro ao salvar dados.");
+                    setShowMessageBox(true);
+                }
+            }, [db, userId, appId]);
+
+            const debouncedSave = React.useMemo(() => {
+                const debounce = (func, delay) => {
+                    let timeout;
+                    return (...args) => {
+                        clearTimeout(timeout);
+                        timeout = setTimeout(() => func.apply(this, args), delay);
+                    };
+                };
+                return debounce(saveDataToFirestore, 2000); // Debounce save by 2 seconds
+            }, [saveDataToFirestore]);
+
+            // Effect to trigger save when relevant data changes
+            React.useEffect(() => {
+                if (isAuthReady && userId && db && isInitialLoadDone.current) {
+                    // Ensure allYearData contains the latest yearlyPeriods for the selectedYear
+                    const dataToSave = {
+                        globalHourlyRate: hourlyRate,
+                        lastActiveYear: selectedYear,
+                        allYearData: {
+                            ...allYearData, // Preserve other years' data
+                            [selectedYear]: { periods: yearlyPeriods } // Update current year's data
+                        }
+                    };
+                    // Only save if there's something meaningful to save
+                    if (Object.keys(dataToSave.allYearData).length > 0 || dataToSave.globalHourlyRate !== 12.94) {
+                         debouncedSave(dataToSave);
+                    }
+                }
+            }, [hourlyRate, selectedYear, yearlyPeriods, allYearData, isAuthReady, userId, db, debouncedSave]);
+
+
+            // --- YearlyPeriods Management on selectedYear change ---
+            React.useEffect(() => {
+                if (!isInitialLoadDone.current && !isAuthReady) return; // Don't run on initial mount before load or if auth not ready
+
+                // When selectedYear changes, load or initialize its periods
+                if (allYearData[selectedYear]) {
+                    setYearlyPeriods(allYearData[selectedYear].periods);
+                } else {
+                    const newPeriods = initializeYearPeriods(selectedYear);
+                    setYearlyPeriods(newPeriods);
+                    // Add these new periods to allYearData for future saving
+                    setAllYearData(prev => ({ ...prev, [selectedYear]: { periods: newPeriods } }));
+                }
+                setAnnualTotalSalary(0); // Reset annual total when year changes
+            }, [selectedYear, allYearData, initializeYearPeriods, isAuthReady]); // Removed isInitialLoadDone from here to allow year change logic
+
+            // --- Calculator Logic Handlers (handleHourlyRateChange, etc.) ---
+            // These handlers will modify hourlyRate, selectedYear, or yearlyPeriods.
+            // The useEffect for saving will pick up these changes.
 
             const handleHourlyRateChange = (e) => {
                 const value = parseFloat(e.target.value);
                 const newHourlyRate = isNaN(value) || value < 0 ? 0 : value;
                 setHourlyRate(newHourlyRate);
-                setYearlyPeriods(prev => prev.map(p => ({ 
-                    ...p, 
-                    monthlySalary: 0, // Resetar salário mensal pois a taxa mudou
-                    // monthlyTotalHours: 0, // Opcional: resetar horas se a lógica exigir
-                })));
-                setAnnualTotalSalary(0); 
+                // Recalculate all salaries if rate changes? Or just mark them as needing recalc.
+                // For simplicity, we'll let the user recalculate. Existing monthlySalary in yearlyPeriods will become outdated.
+                // Or, clear all monthlySalary and annualTotalSalary
+                setYearlyPeriods(prev => prev.map(p => ({ ...p, monthlySalary: 0, monthlyTotalHours: 0 })));
+                setAllYearData(prev => {
+                    const updatedAllYearData = { ...prev };
+                    if (updatedAllYearData[selectedYear]) {
+                        updatedAllYearData[selectedYear].periods = updatedAllYearData[selectedYear].periods.map(p => ({ ...p, monthlySalary: 0, monthlyTotalHours: 0 }));
+                    }
+                    return updatedAllYearData;
+                });
+                setAnnualTotalSalary(0);
             };
             
             const handleSelectedYearChange = (e) => {
-                const yearValue = e.target.value;
-                setSelectedYear(yearValue);
-                // initializePeriods será chamado pelo useEffect
+                const newYear = e.target.value;
+                // Before changing selectedYear, ensure current yearlyPeriods are stored in allYearData
+                // This is now handled by the save useEffect which watches yearlyPeriods
+                setSelectedYear(newYear);
             };
 
             const handleDailyHoursChange = React.useCallback((periodIndex, dayIndex, hoursStr) => {
                 const hours = parseFloat(hoursStr);
-                const newHours = isNaN(hours) || hours < 0 ? 0 : (hours > 24 ? 24 : hours) ;
-
-                setYearlyPeriods((prevYearlyPeriods) => {
-                    const newYearlyPeriods = [...prevYearlyPeriods];
-                    const periodToUpdate = { ...newYearlyPeriods[periodIndex] };
+                const newHours = isNaN(hours) || hours < 0 ? 0 : (hours > 24 ? 24 : hours);
+                setYearlyPeriods((prevPeriods) => {
+                    const newPeriods = [...prevPeriods];
+                    const periodToUpdate = { ...newPeriods[periodIndex] };
                     const newDays = [...periodToUpdate.days];
-                    
                     newDays[dayIndex] = { ...newDays[dayIndex], hours: newHours };
-                    
                     periodToUpdate.days = newDays;
-                    // Resetar salário do mês pois as horas mudaram
-                    periodToUpdate.monthlyTotalHours = 0; 
-                    periodToUpdate.monthlySalary = 0;   
-                    newYearlyPeriods[periodIndex] = periodToUpdate;
-                    return newYearlyPeriods;
+                    periodToUpdate.monthlyTotalHours = 0; periodToUpdate.monthlySalary = 0;   
+                    newPeriods[periodIndex] = periodToUpdate;
+                    return newPeriods;
                 });
-                // Resetar total anual pois um cálculo mensal está inválido
                 setAnnualTotalSalary(0); 
             }, []);
 
             const toggleMonthExpansion = React.useCallback((periodIndex) => {
-                // Esta função é mais para controle de estado React, se necessário.
-                // O <details> nativo já controla a expansão visualmente.
-                setYearlyPeriods(prevYearlyPeriods => 
-                    prevYearlyPeriods.map((period, index) => 
-                        index === periodIndex ? { ...period, isExpanded: !period.isExpanded } : period
-                    )
+                setYearlyPeriods(prevPeriods => 
+                    prevPeriods.map((p, idx) => idx === periodIndex ? { ...p, isExpanded: !p.isExpanded } : p)
                 );
             }, []);
 
             const handleQuickFillHoursChange = React.useCallback((periodIndex, hoursStr) => {
                 const hours = parseFloat(hoursStr);
                 const newQuickFillHours = isNaN(hours) || hours < 0 ? 0 : (hours > 24 ? 24 : hours);
-                setYearlyPeriods(prevYearlyPeriods => 
-                    prevYearlyPeriods.map((period, index) =>
-                        index === periodIndex ? { ...period, quickFillHours: newQuickFillHours } : period
-                    )
+                setYearlyPeriods(prevPeriods => 
+                    prevPeriods.map((p, idx) => idx === periodIndex ? { ...p, quickFillHours: newQuickFillHours } : p)
                 );
             }, []);
 
             const applyQuickFill = React.useCallback((periodIndex) => {
-                setYearlyPeriods(prevYearlyPeriods => {
-                    const newPeriods = [...prevYearlyPeriods];
+                setYearlyPeriods(prevPeriods => {
+                    const newPeriods = [...prevPeriods];
                     const periodToUpdate = { ...newPeriods[periodIndex] };
                     const fillHours = periodToUpdate.quickFillHours;
-
-                    const updatedDays = periodToUpdate.days.map(day => {
-                        if (day.isWeekday && !day.isHoliday) {
-                            return { ...day, hours: fillHours };
-                        }
-                        return day; 
-                    });
-
+                    const updatedDays = periodToUpdate.days.map(day => 
+                        (day.isWeekday && !day.isHoliday) ? { ...day, hours: fillHours } : day
+                    );
                     periodToUpdate.days = updatedDays;
-                    periodToUpdate.monthlyTotalHours = 0; 
-                    periodToUpdate.monthlySalary = 0;   
+                    periodToUpdate.monthlyTotalHours = 0; periodToUpdate.monthlySalary = 0;   
                     newPeriods[periodIndex] = periodToUpdate;
                     return newPeriods;
                 });
@@ -298,259 +394,175 @@
 
             const calculateMonthlySalary = React.useCallback((periodIndex) => {
                 if (!hourlyRate || hourlyRate <= 0) {
-                    setErrorMessage('Por favor, insira uma taxa horária válida e maior que zero.');
-                    setShowMessageBox(true);
-                    return;
+                    setErrorMessage('Por favor, insira uma taxa horária válida e maior que zero.'); setShowMessageBox(true); return;
                 }
-
-                let newAnnualTotalFromThisUpdate = 0; // Acumulador para o total anual
-                setYearlyPeriods(prevYearlyPeriods => {
-                    const newYearlyPeriods = prevYearlyPeriods.map((period, index) => {
-                        if (index === periodIndex) { // Calcula/recalcula o mês selecionado
+                let newOverallAnnualTotal = 0;
+                setYearlyPeriods(prevPeriods => {
+                    const newPeriods = prevPeriods.map((p, idx) => {
+                        if (idx === periodIndex) {
                             let currentMonthlyTotalHours = 0;
-                            period.days.forEach(day => {
-                                currentMonthlyTotalHours += day.hours;
-                            });
+                            p.days.forEach(day => { currentMonthlyTotalHours += day.hours; });
                             const currentMonthlySalary = currentMonthlyTotalHours * hourlyRate;
-                            const updatedPeriod = {
-                                ...period,
-                                monthlyTotalHours: currentMonthlyTotalHours,
-                                monthlySalary: currentMonthlySalary
-                            };
-                            newAnnualTotalFromThisUpdate += currentMonthlySalary; // Adiciona o salário deste mês
+                            const updatedPeriod = { ...p, monthlyTotalHours: currentMonthlyTotalHours, monthlySalary: currentMonthlySalary };
+                            newOverallAnnualTotal += currentMonthlySalary;
                             return updatedPeriod;
                         }
-                        // Para os outros meses, adiciona o salário já calculado (se houver)
-                        newAnnualTotalFromThisUpdate += period.monthlySalary; 
-                        return period;
+                        newOverallAnnualTotal += p.monthlySalary; // Add existing salaries of other months
+                        return p;
                     });
-                    return newYearlyPeriods;
+                    return newPeriods;
                 });
-                
-                setAnnualTotalSalary(newAnnualTotalFromThisUpdate); // Atualiza o total anual
-                setErrorMessage('');
-                setShowMessageBox(false);
+                setAnnualTotalSalary(newOverallAnnualTotal);
+                setErrorMessage(''); setShowMessageBox(false);
             }, [hourlyRate]);
 
             const calculateAnnualSalary = () => {
                 if (!hourlyRate || hourlyRate <= 0) {
-                    setErrorMessage('Por favor, insira uma taxa horária válida e maior que zero.');
-                    setShowMessageBox(true);
-                    setAnnualTotalSalary(0);
-                    return;
+                    setErrorMessage('Por favor, insira uma taxa horária válida e maior que zero.'); setShowMessageBox(true); setAnnualTotalSalary(0); return;
                 }
-
-                // Verifica se todos os meses com horas preenchidas tiveram seus salários calculados
-                const monthsNotCalculated = yearlyPeriods.some(period => 
-                    period.days.some(d => d.hours > 0) && period.monthlySalary === 0
-                );
-
+                const monthsNotCalculated = yearlyPeriods.some(p => p.days.some(d => d.hours > 0) && p.monthlySalary === 0);
                 if (monthsNotCalculated) {
-                    setErrorMessage('Por favor, calcule o salário de todos os meses com horas preenchidas antes de calcular o total anual.');
-                    setShowMessageBox(true);
-                    return;
+                    setErrorMessage('Calcule o salário de todos os meses com horas antes do total anual.'); setShowMessageBox(true); return;
                 }
-
-                let totalAnnualSalary = 0;
-                const updatedYearlyPeriods = yearlyPeriods.map(period => {
-                    // Se o salário mensal já foi calculado e é > 0, usa ele.
-                    // Caso contrário, recalcula (isso garante que se as horas foram zeradas após cálculo, o salário também zere)
+                let totalAnnual = 0;
+                const updatedYearlyPeriodsWithFinalSalaries = yearlyPeriods.map(p => {
                     let currentMonthlyTotalHours = 0;
-                    period.days.forEach(day => {
-                        currentMonthlyTotalHours += day.hours;
-                    });
-                    const monthlySalary = currentMonthlyTotalHours * hourlyRate;
-                    totalAnnualSalary += monthlySalary;
-                    
-                    return { // Retorna o período atualizado para garantir consistência no estado
-                        ...period,
-                        monthlyTotalHours: currentMonthlyTotalHours,
-                        monthlySalary: monthlySalary 
-                    };
+                    p.days.forEach(day => { currentMonthlyTotalHours += day.hours; });
+                    const monthlySal = currentMonthlyTotalHours * hourlyRate;
+                    totalAnnual += monthlySal;
+                    return { ...p, monthlyTotalHours: currentMonthlyTotalHours, monthlySalary: monthlySal };
                 });
-
-                setYearlyPeriods(updatedYearlyPeriods); // Atualiza os períodos com os salários recalculados se necessário
-                setAnnualTotalSalary(totalAnnualSalary);
-                setErrorMessage('');
-                setShowMessageBox(false);
+                setYearlyPeriods(updatedYearlyPeriodsWithFinalSalaries);
+                setAnnualTotalSalary(totalAnnual);
+                setErrorMessage(''); setShowMessageBox(false);
             };
 
             const resetAllCalculations = React.useCallback(() => {
-                // Mantém o ano selecionado, mas reinicializa os períodos para ele
-                initializePeriods(selectedYear); 
-                setHourlyRate(12.94); 
-                // annualTotalSalary será resetado por initializePeriods
-                setErrorMessage('');
-                setShowMessageBox(false);
-            }, [selectedYear, initializePeriods]); 
+                const currentSelectedYear = selectedYear; // Preserve current year selection
+                const defaultHourlyRate = 12.94;
+                
+                setHourlyRate(defaultHourlyRate);
+                const freshPeriodsForCurrentYear = initializeYearPeriods(currentSelectedYear);
+                setYearlyPeriods(freshPeriodsForCurrentYear);
+                
+                // Update allYearData for the current year with fresh periods
+                setAllYearData(prev => ({
+                    ...prev, // Keep other years' data if any
+                    [currentSelectedYear]: { periods: freshPeriodsForCurrentYear }
+                }));
+
+                setAnnualTotalSalary(0);
+                setErrorMessage(''); setShowMessageBox(false);
+                // Data will be saved by the debouncedSave effect due to state changes
+            }, [selectedYear, initializeYearPeriods]); 
 
             const MessageBox = ({ message, onClose }) => (
                 <div className="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 p-4">
                     <div className="bg-gray-800 p-6 rounded-lg shadow-xl max-w-sm w-full text-center border border-red-500">
                         <p className="text-lg font-semibold text-red-400 mb-4">{message}</p>
-                        <button
-                            onClick={onClose}
-                            className="px-6 py-2 bg-blue-700 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200"
-                        >
-                            Fechar
-                        </button>
+                        <button onClick={onClose} className="px-6 py-2 bg-blue-700 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200">Fechar</button>
                     </div>
                 </div>
             );
 
+            if (!isAuthReady && !db) { // Show loading indicator or minimal UI until Firebase is ready
+                 return (
+                    <div className="min-h-screen bg-gray-900 text-gray-100 p-8 flex flex-col items-center justify-center font-inter">
+                        <p className="text-xl text-blue-400">Carregando calculadora e conexão de dados...</p>
+                    </div>
+                );
+            }
+
+            // --- JSX Rendering ---
             return (
-                // Container principal da aplicação
                 <div className="min-h-screen bg-gray-900 text-gray-100 p-4 sm:p-8 flex flex-col items-center justify-start font-inter">
-                    {/* Card principal da calculadora */}
                     <div className="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-4xl border border-gray-700">
-                        <h1 className="text-3xl sm:text-4xl font-extrabold text-center text-blue-400 mb-8">
-                            Calculadora Esteio
+                        <h1 className="text-3xl sm:text-4xl font-extrabold text-center text-blue-400 mb-2">
+                            Calculadora de Salário Final
                         </h1>
+                        <p className="text-center text-xs text-gray-400 mb-1">ID do Usuário (para dados): {userId || "Autenticando..."}</p>
+                        <p className="text-center text-xs text-gray-500 mb-6">App ID: {appId}</p>
 
-                        {/* Seção de inputs: Taxa Horária e Ano */}
+
+                        {/* Input section */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                            {/* Input Taxa Horária */}
                             <div className="flex flex-col">
-                                <label htmlFor="hourlyRate" className="text-gray-300 font-medium mb-2">
-                                    Taxa Horária (R$)
-                                </label>
-                                <input
-                                    type="number"
-                                    id="hourlyRate"
-                                    value={hourlyRate}
-                                    onChange={handleHourlyRateChange}
-                                    className="p-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-200 shadow-sm text-gray-100 appearance-none"
-                                    style={{ MozAppearance: 'textfield' }} /* Para Firefox esconder os seletores */
-                                    step="0.01"
-                                    min="0"
-                                    aria-label="Taxa Horária"
-                                />
+                                <label htmlFor="hourlyRate" className="text-gray-300 font-medium mb-2">Taxa Horária (R$)</label>
+                                <input type="number" id="hourlyRate" value={hourlyRate} onChange={handleHourlyRateChange}
+                                    className="p-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-200 shadow-sm text-gray-100"
+                                    step="0.01" min="0" aria-label="Taxa Horária" />
                             </div>
-
-                            {/* Input Ano de Cálculo */}
                             <div className="flex flex-col">
-                                <label htmlFor="selectedYear" className="text-gray-300 font-medium mb-2">
-                                    Ano de Cálculo
-                                </label>
-                                <input
-                                    type="number"
-                                    id="selectedYear"
-                                    value={selectedYear}
-                                    onChange={handleSelectedYearChange}
-                                    className="p-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-200 shadow-sm text-gray-100 appearance-none"
-                                    style={{ MozAppearance: 'textfield' }} /* Para Firefox esconder os seletores */
-                                    min="1900"
-                                    max="2100"
-                                    aria-label="Ano de Cálculo"
-                                />
+                                <label htmlFor="selectedYear" className="text-gray-300 font-medium mb-2">Ano de Cálculo</label>
+                                <input type="number" id="selectedYear" value={selectedYear} onChange={handleSelectedYearChange}
+                                    className="p-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-200 shadow-sm text-gray-100"
+                                    min="1900" max="2100" aria-label="Ano de Cálculo" />
                             </div>
                         </div>
 
-                        {/* Botão de Resetar */}
                         <div className="text-center mb-6">
-                            <button
-                                onClick={resetAllCalculations}
-                                className="py-2 px-6 bg-red-600 text-white font-bold rounded-lg shadow-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 transition duration-300"
-                            >
-                                Resetar Tudo
+                            <button onClick={resetAllCalculations}
+                                className="py-2 px-6 bg-red-600 text-white font-bold rounded-lg shadow-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 transition duration-300">
+                                Resetar Ano Atual
                             </button>
                         </div>
 
-                        {/* Seção de Períodos Mensais - Layout em Grid */}
+                        {/* Monthly Periods Section */}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-                            {/* Mensagem se nenhum período for carregado (ano inválido, por exemplo) */}
                             {yearlyPeriods.length === 0 && !showMessageBox && (
                                 <p className="text-gray-400 text-center py-4 col-span-full">
-                                    Selecione um ano válido para visualizar os períodos de trabalho.
+                                    {isInitialLoadDone.current ? "Selecione um ano válido ou dados não encontrados." : "Carregando dados dos períodos..."}
                                 </p>
                             )}
-                            {/* Mapeia e renderiza cada período mensal */}
                             {yearlyPeriods.map((period, periodIndex) => (
                                 <div key={period.id} className="bg-gray-700 rounded-lg shadow-md border border-gray-600 overflow-hidden flex flex-col">
-                                    {/* Cabeçalho do card do mês */}
                                     <div className="p-4 bg-gray-600 font-semibold text-gray-200 text-lg flex flex-col sm:flex-row items-start sm:items-center justify-between">
                                         <span className="mb-2 sm:mb-0 text-base">
-                                            {/* Formata as datas do período para exibição */}
                                             {period.monthName} ({new Date(period.periodStart.replace(/-/g, '/')).toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit', timeZone: 'UTC'})} a {new Date(period.periodEnd.replace(/-/g, '/')).toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit', timeZone: 'UTC'})})
                                         </span>
-                                        {/* Exibe o salário mensal se calculado */}
                                         {period.monthlySalary > 0 && (
                                             <span className="text-blue-300 font-bold text-lg whitespace-nowrap"> 
                                                 R$ {period.monthlySalary.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                             </span>
                                         )}
                                     </div>
-
-                                    {/* Corpo do card do mês */}
                                     <div className="p-4 bg-gray-700 border-t border-gray-600 flex-grow flex flex-col justify-between">
                                         <div>
-                                            {/* Seção de Preenchimento Rápido */}
                                             <div className="mb-4 p-3 bg-gray-800 rounded-md border border-gray-700">
-                                                <label htmlFor={`quickFill-${period.id}`} className="block text-gray-300 font-medium mb-2 text-sm">
-                                                    Preencher dias úteis com:
-                                                </label>
+                                                <label htmlFor={`quickFill-${period.id}`} className="block text-gray-300 font-medium mb-2 text-sm">Preencher dias úteis com:</label>
                                                 <div className="flex items-center space-x-2">
-                                                    <input
-                                                        type="number"
-                                                        id={`quickFill-${period.id}`}
-                                                        value={period.quickFillHours}
-                                                        onChange={(e) => handleQuickFillHoursChange(periodIndex, e.target.value)}
-                                                        className="p-2 bg-gray-700 border border-gray-600 rounded-md w-20 text-center focus:ring-blue-500 focus:border-blue-500 transition duration-200 text-gray-100 appearance-none"
-                                                        style={{ MozAppearance: 'textfield' }}
-                                                        step="0.5"
-                                                        min="0"
-                                                        max="24" // Limite de horas
-                                                        aria-label="Preencher horas"
-                                                    />
-                                                    <button
-                                                        onClick={() => applyQuickFill(periodIndex)}
-                                                        className="flex-grow py-2 px-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 transition duration-200 text-sm"
-                                                    >
+                                                    <input type="number" id={`quickFill-${period.id}`} value={period.quickFillHours} onChange={(e) => handleQuickFillHoursChange(periodIndex, e.target.value)}
+                                                        className="p-2 bg-gray-700 border border-gray-600 rounded-md w-20 text-center focus:ring-blue-500 focus:border-blue-500 transition duration-200 text-gray-100"
+                                                        step="0.5" min="0" max="24" aria-label="Preencher horas" />
+                                                    <button onClick={() => applyQuickFill(periodIndex)}
+                                                        className="flex-grow py-2 px-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 transition duration-200 text-sm">
                                                         Preencher Mês
                                                     </button>
                                                 </div>
                                             </div>
-
-                                            {/* Botão Calcular Salário do Mês */}
-                                            <button
-                                                onClick={() => calculateMonthlySalary(periodIndex)}
-                                                className="mt-2 w-full py-2 bg-blue-700 text-white font-semibold rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200"
-                                            >
+                                            <button onClick={() => calculateMonthlySalary(periodIndex)}
+                                                className="mt-2 w-full py-2 bg-blue-700 text-white font-semibold rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200">
                                                 Calcular Salário do Mês
                                             </button>
                                         </div>
-
-                                        {/* Detalhes para ajuste individual dos dias */}
                                         <details className="w-full mt-4 border-t border-gray-600 pt-3">
-                                            <summary
-                                                className="flex items-center p-2 bg-gray-700 hover:bg-gray-700/70 transition duration-200 font-medium text-gray-200 rounded-md cursor-pointer"
-                                                // onClick={(e) => { toggleMonthExpansion(periodIndex); }} // Opcional, se precisar controlar estado
-                                            >
+                                            <summary className="flex items-center p-2 bg-gray-700 hover:bg-gray-700/70 transition duration-200 font-medium text-gray-200 rounded-md cursor-pointer"
+                                                onClick={(e) => { toggleMonthExpansion(periodIndex); }}>
                                                 Ajustar dias específicos
                                             </summary>
-                                            {/* Lista de dias com scroll */}
                                             <div className="max-h-60 overflow-y-auto pr-1 pt-2 mt-1 space-y-2"> 
                                                 {period.days.map((day, dayIndex) => (
                                                     <div key={day.date} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-2 bg-gray-800 rounded-md border border-gray-600">
                                                         <span className="text-gray-300 text-sm font-medium mb-2 sm:mb-0 sm:w-32">
-                                                            {/* Formata data do dia para exibição */}
                                                             {new Date(day.date.replace(/-/g, '/')).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'UTC' })}
                                                             {day.isHoliday && <span className="text-red-400 ml-1 text-xs">(F)</span>}
                                                             {!day.isWeekday && !day.isHoliday && <span className="text-yellow-400 ml-1 text-xs">(FS)</span>}
                                                         </span>
                                                         <div className="flex items-center space-x-2">
                                                             <label className="text-gray-400 text-sm">Horas:</label>
-                                                            <input
-                                                                type="number"
-                                                                value={day.hours}
-                                                                onChange={(e) => handleDailyHoursChange(periodIndex, dayIndex, e.target.value)}
-                                                                className="p-1 bg-gray-700 border border-gray-600 rounded-md w-20 text-center focus:ring-blue-500 focus:border-blue-500 transition duration-200 text-gray-100 text-sm appearance-none"
-                                                                style={{ MozAppearance: 'textfield' }}
-                                                                step="0.5"
-                                                                min="0"
-                                                                max="24" // Limite de horas
-                                                                aria-label={`Horas para ${day.date}`}
-                                                            />
+                                                            <input type="number" value={day.hours} onChange={(e) => handleDailyHoursChange(periodIndex, dayIndex, e.target.value)}
+                                                                className="p-1 bg-gray-700 border border-gray-600 rounded-md w-20 text-center focus:ring-blue-500 focus:border-blue-500 transition duration-200 text-gray-100 text-sm"
+                                                                step="0.5" min="0" max="24" aria-label={`Horas para ${day.date}`} />
                                                         </div>
                                                     </div>
                                                 ))}
@@ -561,17 +573,12 @@
                             ))}
                         </div>
 
-                        {/* Botão Calcular Salário Anual Completo */}
-                        <button
-                            onClick={calculateAnnualSalary}
+                        <button onClick={calculateAnnualSalary}
                             className="w-full py-3 bg-green-600 text-white font-bold text-lg rounded-lg shadow-md hover:bg-green-500 focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-opacity-50 transition duration-300 transform hover:scale-105"
-                            aria-label="Calcular Salário Anual"
-                            disabled={yearlyPeriods.length === 0} // Desabilita se não houver períodos
-                        >
+                            aria-label="Calcular Salário Anual" disabled={yearlyPeriods.length === 0}>
                             Calcular Salário Anual Completo
                         </button>
 
-                        {/* Display do Resultado Anual */}
                         {annualTotalSalary > 0 && (
                             <div className="mt-8 p-6 bg-blue-900/50 border-l-4 border-blue-600 rounded-lg shadow-lg text-center">
                                 <h2 className="text-2xl font-bold text-blue-300 mb-2">Salário Total Anual Estimado:</h2>
@@ -581,16 +588,12 @@
                             </div>
                         )}
 
-                        {/* Caixa de Mensagem de Erro/Aviso */}
-                        {showMessageBox && (
-                            <MessageBox message={errorMessage} onClose={() => setShowMessageBox(false)} />
-                        )}
+                        {showMessageBox && ( <MessageBox message={errorMessage} onClose={() => setShowMessageBox(false)} /> )}
                     </div>
                 </div>
             );
         }
 
-        // Usa a API createRoot do React 18
         const container = document.getElementById('root');
         const root = ReactDOM.createRoot(container);
         root.render(<App />);
