@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calculadora de Salário Final (com Férias e 13º)</title>
+    <title>Calculadora de Salário Final (com Total Geral)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
@@ -52,6 +52,7 @@
             const [selectedYear, setSelectedYear] = React.useState(new Date().getFullYear().toString());
             const [yearlyPeriods, setYearlyPeriods] = React.useState([]);
             const [annualTotalSalary, setAnnualTotalSalary] = React.useState(0);
+            const [grandTotal, setGrandTotal] = React.useState(0); // Novo estado para o total geral
             const [errorMessage, setErrorMessage] = React.useState('');
             const [showMessageBox, setShowMessageBox] = React.useState(false);
             const [infoMessageBox, setInfoMessageBox] = React.useState({show: false, title: '', content: ''});
@@ -112,6 +113,7 @@
                     setShowMessageBox(true);
                     setYearlyPeriods([]);
                     setAnnualTotalSalary(0);
+                    setGrandTotal(0);
                     return;
                 }
 
@@ -133,6 +135,7 @@
                 }
                 setYearlyPeriods(periods);
                 setAnnualTotalSalary(0); 
+                setGrandTotal(0);
                 setErrorMessage(''); setShowMessageBox(false);
             }, [monthNames, getBrazilianHolidays, formatDate]);
 
@@ -146,11 +149,13 @@
                 setHourlyRate(newHourlyRate);
                 setYearlyPeriods(prev => prev.map(p => ({ ...p, monthlySalary: 0, monthlyTotalHours: 0 })));
                 setAnnualTotalSalary(0); 
+                setGrandTotal(0);
             };
             
             const handleSelectedYearChange = (e) => {
                 const yearValue = e.target.value;
                 setSelectedYear(yearValue);
+                // initializePeriods será chamado pelo useEffect
             };
 
             const handleDailyHoursChange = React.useCallback((periodIndex, dayIndex, hoursStr) => {
@@ -167,6 +172,7 @@
                     return newPeriods;
                 });
                 setAnnualTotalSalary(0); 
+                setGrandTotal(0);
             }, []);
 
             const toggleMonthExpansion = React.useCallback((periodIndex) => {
@@ -197,6 +203,7 @@
                     return newPeriods;
                 });
                 setAnnualTotalSalary(0); 
+                setGrandTotal(0);
             }, []);
 
             const calculateMonthlySalary = React.useCallback((periodIndex) => {
@@ -220,6 +227,7 @@
                     return newPeriods;
                 });
                 setAnnualTotalSalary(newOverallAnnualTotal);
+                setGrandTotal(0); // Resetar total geral pois um componente mudou
                 setErrorMessage(''); setShowMessageBox(false);
             }, [hourlyRate]);
 
@@ -241,6 +249,7 @@
                 });
                 setYearlyPeriods(updatedYearlyPeriodsWithFinalSalaries);
                 setAnnualTotalSalary(totalAnnual);
+                setGrandTotal(0); // Resetar total geral pois um componente mudou
                 setErrorMessage(''); setShowMessageBox(false);
             };
 
@@ -248,25 +257,27 @@
                 initializePeriods(selectedYear); 
                 setHourlyRate(12.94); 
                 setAnnualTotalSalary(0);
+                setGrandTotal(0);
                 setErrorMessage(''); setShowMessageBox(false);
                 setInfoMessageBox({show: false, title: '', content: ''});
             }, [selectedYear, initializePeriods]); 
 
+            const getAverageCalculatedSalary = () => {
+                const calculatedSalaries = yearlyPeriods.filter(p => p.monthlySalary > 0).map(p => p.monthlySalary);
+                if (calculatedSalaries.length === 0) {
+                    return 0;
+                }
+                return calculatedSalaries.reduce((sum, sal) => sum + sal, 0) / calculatedSalaries.length;
+            };
+
             const calculateVacation = () => {
-                if (yearlyPeriods.length === 0 || yearlyPeriods.every(p => p.monthlySalary === 0)) {
+                const averageMonthlySalary = getAverageCalculatedSalary();
+                if (averageMonthlySalary === 0) {
                     setErrorMessage('Calcule alguns salários mensais primeiro para estimar as férias.');
                     setShowMessageBox(true);
                     return;
                 }
 
-                const calculatedSalaries = yearlyPeriods.filter(p => p.monthlySalary > 0).map(p => p.monthlySalary);
-                if (calculatedSalaries.length === 0) {
-                     setErrorMessage('Nenhum salário mensal calculado para basear as férias.');
-                    setShowMessageBox(true);
-                    return;
-                }
-
-                const averageMonthlySalary = calculatedSalaries.reduce((sum, sal) => sum + sal, 0) / calculatedSalaries.length;
                 const oneThirdVacation = averageMonthlySalary / 3;
                 const totalVacationPayBrute = averageMonthlySalary + oneThirdVacation;
 
@@ -282,39 +293,83 @@
                 setErrorMessage(''); setShowMessageBox(false);
             };
 
-            const calculateThirteenth = () => {
-                if (yearlyPeriods.length === 0 || yearlyPeriods.every(p => p.monthlySalary === 0)) {
-                    setErrorMessage('Calcule alguns salários mensais primeiro para estimar o 13º.');
+            const calculateThirteenth = (proportionalMonths = 12) => {
+                const averageMonthlySalary = getAverageCalculatedSalary();
+                if (averageMonthlySalary === 0) {
+                     setErrorMessage('Calcule alguns salários mensais primeiro para estimar o 13º.');
                     setShowMessageBox(true);
-                    return;
+                    return { baseSalary: 0, thirteenthTotal: 0 };
                 }
-                const calculatedSalaries = yearlyPeriods.filter(p => p.monthlySalary > 0).map(p => p.monthlySalary);
-                 if (calculatedSalaries.length === 0) {
-                     setErrorMessage('Nenhum salário mensal calculado para basear o 13º.');
+
+                const thirteenthTotalBrute = (averageMonthlySalary / 12) * proportionalMonths;
+                
+                if (proportionalMonths === 12) { // Só mostra o modal se for o cálculo completo
+                    const content = (
+                        React.createElement('div', null,
+                            React.createElement('p', {className: "mb-2"}, `Salário Médio Mensal Considerado (Base): R$ ${averageMonthlySalary.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`),
+                            React.createElement('p', {className: "text-lg font-semibold mb-2"}, `Total Bruto Estimado do 13º Salário (${proportionalMonths}/12 avos): R$ ${thirteenthTotalBrute.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`),
+                            React.createElement('p', {className: "text-sm text-gray-300 mt-3 mb-1"}, `Parcelamento (Comum para 12/12 avos):`),
+                            React.createElement('ul', {className: "list-disc list-inside text-sm text-gray-400"},
+                                React.createElement('li', null, `1ª Parcela (até Novembro): ~50% do valor bruto, sem descontos. (Aprox. R$ ${(averageMonthlySalary/2).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`), // Para 12/12 avos
+                                React.createElement('li', null, `2ª Parcela (até Dezembro): Restante, com descontos de INSS e IRRF aplicados sobre o valor total.`)
+                            ),
+                            React.createElement('p', {className: "text-xs text-gray-400 mt-4"}, `Nota: Este é um valor bruto estimado. O cálculo exato pode variar. Consulte um profissional para cálculos exatos.`)
+                        )
+                    );
+                    setInfoMessageBox({show: true, title: `Estimativa de 13º Salário (${proportionalMonths}/12 avos)`, content: content});
+                }
+                setErrorMessage(''); setShowMessageBox(false);
+                return { baseSalary: averageMonthlySalary, thirteenthTotal: thirteenthTotalBrute };
+            };
+            
+            const calculateGrandTotal = () => {
+                const sumMonthlySalaries = yearlyPeriods.reduce((acc, p) => acc + (p.monthlySalary || 0), 0);
+
+                if (sumMonthlySalaries === 0) {
+                    setErrorMessage('Calcule ao menos um salário mensal para estimar o total geral.');
                     setShowMessageBox(true);
                     return;
                 }
 
-                // Para simplificar, vamos considerar a média dos salários calculados no ano como base.
-                // Um cálculo mais preciso consideraria os meses trabalhados e o salário de Dezembro ou a média, o que for maior.
-                const averageMonthlySalary = calculatedSalaries.reduce((sum, sal) => sum + sal, 0) / calculatedSalaries.length;
-                const totalThirteenthBrute = averageMonthlySalary; // Assumindo 12/12 avos.
+                const averageSalary = getAverageCalculatedSalary();
+                if (averageSalary === 0) { // Redundante se sumMonthlySalaries > 0, mas seguro
+                    setErrorMessage('Não foi possível calcular a média salarial para férias e 13º.');
+                    setShowMessageBox(true);
+                    return;
+                }
 
-                 const content = (
-                    React.createElement('div', null,
-                        React.createElement('p', {className: "mb-2"}, `Salário Médio Mensal Considerado (Base): R$ ${averageMonthlySalary.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`),
-                        React.createElement('p', {className: "text-lg font-semibold mb-2"}, `Total Bruto Estimado do 13º Salário: R$ ${totalThirteenthBrute.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`),
-                        React.createElement('p', {className: "text-sm text-gray-300 mt-3 mb-1"}, `Parcelamento (Comum):`),
-                        React.createElement('ul', {className: "list-disc list-inside text-sm text-gray-400"},
-                            React.createElement('li', null, `1ª Parcela (até Novembro): ~50% do valor bruto, sem descontos. (Aprox. R$ ${(totalThirteenthBrute/2).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`),
-                            React.createElement('li', null, `2ª Parcela (até Dezembro): Restante, com descontos de INSS e IRRF aplicados sobre o valor total.`)
+                const vacationBrute = averageSalary + (averageSalary / 3);
+                const thirteenthProportionalBrute = (averageSalary / 12) * 8; // 8/12 avos (até Agosto)
+
+                const currentGrandTotal = sumMonthlySalaries + vacationBrute + thirteenthProportionalBrute;
+                setGrandTotal(currentGrandTotal);
+
+                const content = (
+                    React.createElement('div', {className: "space-y-2"},
+                        React.createElement('p', null, 
+                            React.createElement('strong', null, "Soma dos Salários Mensais Calculados: "), 
+                            `R$ ${sumMonthlySalaries.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                         ),
-                        React.createElement('p', {className: "text-xs text-gray-400 mt-4"}, `Nota: Este é um valor bruto estimado. O cálculo exato pode variar (ex: meses trabalhados, horas extras, etc.). Consulte um profissional para cálculos exatos.`)
+                        React.createElement('p', null, 
+                            React.createElement('strong', null, "Estimativa Bruta de Férias (Média + 1/3): "), 
+                            `R$ ${vacationBrute.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                        ),
+                        React.createElement('p', null, 
+                            React.createElement('strong', null, "Estimativa Bruta do 13º (Proporcional 8/12 avos): "), 
+                            `R$ ${thirteenthProportionalBrute.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                        ),
+                        React.createElement('hr', {className: "my-3 border-gray-600"}),
+                        React.createElement('p', {className: "text-xl font-bold text-green-400"}, 
+                            React.createElement('strong', null, "Total Geral Estimado (Bruto): "), 
+                            `R$ ${currentGrandTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                        ),
+                        React.createElement('p', {className: "text-xs text-gray-400 mt-4"}, `Nota: Todos os valores são brutos e estimativas. Descontos não foram aplicados. Consulte um profissional para cálculos exatos.`)
                     )
                 );
-                setInfoMessageBox({show: true, title: 'Estimativa de 13º Salário', content: content});
+                setInfoMessageBox({show: true, title: 'Estimativa do Total Geral (até Agosto)', content: content});
                 setErrorMessage(''); setShowMessageBox(false);
             };
+
 
             const MessageBox = ({ message, onClose, type = "error" }) => {
                 const bgColor = type === "error" ? "bg-red-500" : "bg-blue-500";
@@ -434,20 +489,41 @@
                                 className: "w-full py-3 bg-teal-600 text-white font-bold text-lg rounded-lg shadow-md hover:bg-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-400 focus:ring-opacity-50 transition duration-300",
                                 "aria-label": "Calcular Férias", disabled: yearlyPeriods.length === 0},
                                 "Calcular Férias (Estimativa)"),
-                            React.createElement('button', {onClick: calculateThirteenth,
+                            React.createElement('button', {onClick: () => calculateThirteenth(12), // Chama com 12 meses para o modal completo
                                 className: "w-full py-3 bg-indigo-600 text-white font-bold text-lg rounded-lg shadow-md hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-opacity-50 transition duration-300",
                                 "aria-label": "Calcular 13º Salário", disabled: yearlyPeriods.length === 0},
                                 "Calcular 13º Salário (Estimativa)")
                         ),
 
+                        React.createElement('div', {className: "mt-6 pt-6 border-t border-gray-700"},
+                             React.createElement('button', {onClick: calculateGrandTotal,
+                                className: "w-full py-3 bg-yellow-500 text-gray-900 font-bold text-lg rounded-lg shadow-md hover:bg-yellow-400 focus:outline-none focus:ring-2 focus:ring-yellow-300 focus:ring-opacity-50 transition duration-300 transform hover:scale-105",
+                                "aria-label": "Calcular Total Geral Estimado", disabled: yearlyPeriods.length === 0},
+                                "Calcular Total Geral Estimado (Salários + Férias + 13º até Ago)")
+                        ),
+
+
                         annualTotalSalary > 0 && (
                             React.createElement('div', {className: "mt-8 p-6 bg-blue-900/50 border-l-4 border-blue-600 rounded-lg shadow-lg text-center"},
-                                React.createElement('h2', {className: "text-2xl font-bold text-blue-300 mb-2"}, "Salário Total Anual Estimado:"),
+                                React.createElement('h2', {className: "text-2xl font-bold text-blue-300 mb-2"}, "Salário Total Anual Estimado (Apenas Salários):"),
                                 React.createElement('p', {className: "text-4xl font-extrabold text-blue-100"},
                                     `R$ ${annualTotalSalary.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                                 )
                             )
                         ),
+                        
+                        // O grandTotal não precisa ser exibido permanentemente, o modal já faz isso.
+                        // Se quiser exibir, descomente abaixo:
+                        /*
+                        grandTotal > 0 && (
+                            React.createElement('div', {className: "mt-8 p-6 bg-yellow-800/50 border-l-4 border-yellow-600 rounded-lg shadow-lg text-center"},
+                                React.createElement('h2', {className: "text-2xl font-bold text-yellow-300 mb-2"}, "Total Geral Estimado (Salários + Férias + 13º até Ago):"),
+                                React.createElement('p', {className: "text-4xl font-extrabold text-yellow-100"},
+                                    `R$ ${grandTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                )
+                            )
+                        ),
+                        */
 
                         showMessageBox && React.createElement(MessageBox, {message: {content: errorMessage}, onClose: () => setShowMessageBox(false), type: "error"}),
                         infoMessageBox.show && React.createElement(MessageBox, {message: {title: infoMessageBox.title, content: infoMessageBox.content}, onClose: () => setInfoMessageBox({show: false, title: '', content: ''}), type: "info"})
@@ -464,24 +540,27 @@
 </html>
 
 Principais Mudanças:
- * Remoção do Firebase: Todo o código relacionado à inicialização, autenticação, carregamento e salvamento de dados com o Firebase foi removido.
- * Estado para Férias e 13º:
-   * infoMessageBox (estado): Controla a exibição de um modal genérico que será usado para mostrar os resultados das férias e do 13º, além de outras mensagens informativas se necessário.
- * Função calculateVacation():
-   * Calcula uma estimativa do valor bruto das férias.
-   * Usa a média dos salários mensais já calculados no ano como base.
-   * Adiciona 1/3 constitucional.
-   * Exibe o resultado e uma nota sobre descontos em um MessageBox informativo.
- * Função calculateThirteenth():
-   * Calcula uma estimativa do valor bruto do 13º salário.
-   * Usa a média dos salários mensais calculados como base (assumindo 12/12 avos para simplificar).
-   * Explica brevemente o parcelamento comum e os descontos.
-   * Exibe o resultado em um MessageBox informativo.
- * Novos Botões na UI:
-   * Adicionados botões "Calcular Férias (Estimativa)" e "Calcular 13º Salário (Estimativa)" abaixo do botão de cálculo anual.
-   * Esses botões ficam desabilitados se não houver períodos anuais carregados.
- * Componente MessageBox Atualizado:
-   * Modifiquei o MessageBox para aceitar um title e content (que pode ser uma string ou JSX), e um type ("error" ou "info") para estilizar a caixa de mensagem de acordo.
- * JSX com React.createElement:
-   * Para garantir compatibilidade e evitar problemas com a transpilação do Babel no navegador para o JSX mais complexo dos modais, converti todo o JSX para chamadas React.createElement. Isso torna o código um pouco mais verboso, mas mais seguro nesse ambiente.
-Agora, a calculadora deve funcionar como antes, sem tentar salvar dados, e com os novos botões para estimar férias e 13º salário. Lembre-se que são estimativas simplificadas!
+ * Novo Estado grandTotal:
+   * const [grandTotal, setGrandTotal] = React.useState(0); para armazenar o resultado do cálculo total.
+ * Função getAverageCalculatedSalary():
+   * Uma função auxiliar para calcular a média dos salários mensais que já foram efetivamente calculados (ou seja, monthlySalary > 0). Isso evita que meses não calculados ou com zero horas afetem a média para férias e 13º.
+ * Função calculateThirteenth(proportionalMonths = 12) Atualizada:
+   * Agora aceita um parâmetro proportionalMonths para calcular o 13º proporcionalmente.
+   * Quando chamada pelo botão "Calcular 13º Salário", ela ainda usa proportionalMonths = 12 para mostrar o modal completo.
+   * A função agora também retorna um objeto { baseSalary: averageMonthlySalary, thirteenthTotal: thirteenthTotalBrute } para ser usado por outras funções se necessário, embora para o calculateGrandTotal vamos recalcular a parte do 13º diretamente.
+ * Nova Função calculateGrandTotal():
+   * Calcula a soma dos salários mensais já computados.
+   * Calcula a estimativa bruta das férias (média dos salários calculados + 1/3).
+   * Calcula a estimativa bruta do 13º salário proporcional a 8 meses (média dos salários calculados / 12 * 8).
+   * Soma esses três componentes.
+   * Atualiza o estado grandTotal.
+   * Exibe um MessageBox informativo com o detalhamento da soma (Salários Mensais + Férias Brutas + 13º Proporcional Bruto).
+ * Novo Botão na UI:
+   * Adicionado o botão "Calcular Total Geral Estimado (Salários + Férias + 13º até Ago)".
+   * Este botão chama a função calculateGrandTotal.
+ * Reset:
+   * A função resetAllCalculations agora também reseta o grandTotal para 0.
+   * Qualquer ação que resete annualTotalSalary (como mudar taxa horária, horas diárias, etc.) também reseta grandTotal.
+ * JSX e React.createElement:
+   * Mantive a conversão para React.createElement para os elementos JSX, especialmente para o conteúdo do modal, para garantir a compatibilidade.
+Agora você terá o novo botão para calcular essa soma geral. Lembre-se que todos esses valores (férias, 13º e, consequentemente, o total geral) são estimativas brutas e não consideram descontos de INSS, IRRF, nem outras particularidades como faltas, adicionais, etc.
